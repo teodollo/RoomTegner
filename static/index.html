@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Romskisse – Norsk Gjenvinning</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo-pill">TEO</div>
+  <div class="logo-name">romskisse</div>
+  <div class="hsep"></div>
+  <span style="font-size:11px;color:var(--muted)" id="sketchLabel">Ny skisse</span>
+  <div class="hr">
+    <div class="vtog">
+      <button class="vb act" onclick="setView('2d',this)">2D</button>
+      <button class="vb" onclick="setView('3d',this)">3D</button>
+    </div>
+    <button class="btn btn-gh btn-sm" onclick="openSaveModal()">💾 Lagre</button>
+    <button class="btn btn-gh btn-sm" onclick="exportPDF()">📄 PDF</button>
+    <button class="btn btn-gh btn-sm" onclick="exportSketch()" title="Last ned skisse som .json-fil">⬇ Eksporter</button>
+    <button class="btn btn-gh btn-sm" onclick="document.getElementById('importInput').click()" title="Åpne en .json skissefil">⬆ Importer</button>
+    <input type="file" id="importInput" accept=".json" style="display:none" onchange="importSketch(event)">
+    <button class="btn btn-warn btn-sm" onclick="resetRoom()" title="Fjern alle beholdere, behold romtegning">🧹 Tøm rom</button>
+    <button class="btn btn-danger btn-sm" onclick="resetAll()" title="Slett alt og start på nytt">🗑 Nullstill</button>
+    <button class="btn btn-ng btn-sm" onclick="newSketch()">+ Ny</button>
+  </div>
+</header>
+
+<div class="ws">
+
+  <!-- SIDEBAR -->
+  <div class="sb">
+    <div class="sb-tabs">
+      <button class="sb-tab act" onclick="setSbTab('room',this)">Rom</button>
+      <button class="sb-tab" onclick="setSbTab('containers',this)">Beholdere</button>
+      <button class="sb-tab" onclick="setSbTab('wall',this)">Vegg</button>
+      <button class="sb-tab" onclick="setSbTab('skilt',this)">Skilt</button>
+      <button class="sb-tab" onclick="setSbTab('saved',this)">Lagret</button>
+    </div>
+    <div class="sb-body">
+      <!-- ROM TAB -->
+      <div id="tab-room">
+        <div class="sbs">
+          <div class="sbl">Romform</div>
+          <div class="rmb">
+            <button class="rb" id="mrect" onclick="setRoomMode('rect')">Rektangel</button>
+            <button class="rb act" id="mwall" onclick="setRoomMode('free')">Frihånd</button>
+          </div>
+          <div id="rect-inputs" style="display:none">
+            <div class="rg">
+              <div class="ig"><label>Bredde (m)</label><input type="number" id="rW" value="6" min="1" max="60" step="0.5" oninput="updateRect()"></div>
+              <div class="ig"><label>Dybde (m)</label><input type="number" id="rD" value="4" min="1" max="60" step="0.5" oninput="updateRect()"></div>
+              <div class="ig" style="grid-column:span 2"><label>Takhøyde (m)</label><input type="number" id="rH" value="2.8" min="1.5" max="12" step="0.1" oninput="updateRect()"></div>
+            </div>
+          </div>
+          <div id="free-inputs">
+            <div class="phint">
+              Klikk for å legge hjørnepunkter.<br>
+              <b>Shift</b> = lås 90° · <b>Scroll</b> = zoom<br>
+              <b>Høyreklikk+dra</b> = flytt rundt<br>
+              <b>Ctrl+Z</b> = angre siste punkt<br>
+              <b>Dbl-klikk</b> eller klikk første punkt = lukk<br>
+              <b>Esc</b> = avbryt
+            </div>
+            <div class="ig"><label>Takhøyde (m)</label><input type="number" id="rHF" value="2.8" min="1.5" max="12" step="0.1" oninput="state.roomH=+this.value"></div>
+            <button id="cancel-poly-btn" class="btn" style="width:100%;margin-top:7px;font-size:11px;background:#c0392b;color:#fff;display:none" onclick="cancelPoly()">✕ Avbryt tegning</button>
+            <button class="btn btn-gh" style="width:100%;margin-top:5px;font-size:11px" onclick="resetPoly()">↺ Tegn nytt rom</button>
+          </div>
+        </div>
+        <div class="sbs">
+          <div class="sbl">Zoom</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn btn-gh" style="flex:1;font-size:15px;padding:4px 0" onclick="zoomBtn(1)">＋</button>
+            <button class="btn btn-gh" style="flex:1;font-size:15px;padding:4px 0" onclick="zoomBtn(-1)">－</button>
+            <button class="btn btn-gh" style="flex:1;font-size:11px;padding:4px 0" onclick="resetZoom()">1:1</button>
+          </div>
+        </div>
+        <div class="sbs">
+          <div class="sbl">Notater</div>
+          <div class="ig"><label>Legg til notat</label>
+            <input type="text" id="noteText" placeholder="Skriv notat..." onkeydown="if(e.key==='Enter')addNote()">
+          </div>
+          <button class="btn btn-gh" style="width:100%;margin-top:5px;font-size:11px" onclick="addNote()">+ Legg til i rom</button>
+        </div>
+      </div>
+
+      <!-- CONTAINERS TAB -->
+      <div id="tab-containers" style="display:none">
+        <div class="cl" id="clist"></div>
+      </div>
+
+      <!-- WALL ELEMENTS TAB -->
+      <div id="tab-wall" style="display:none">
+        <div class="we-list">
+          <div class="we" onclick="addWallEl('door')">
+            <div class="we-icon">🚪</div>
+            <div class="we-info"><div class="we-name">Dør</div><div class="we-desc">Standard dør 900mm</div></div>
+          </div>
+          <div class="we" onclick="addWallEl('door-double')">
+            <div class="we-icon">🚪</div>
+            <div class="we-info"><div class="we-name">Dobbeldør</div><div class="we-desc">1800mm bred</div></div>
+          </div>
+          <div class="we" onclick="addWallEl('window')">
+            <div class="we-icon">🪟</div>
+            <div class="we-info"><div class="we-name">Vindu</div><div class="we-desc">Standard vindu 1200mm</div></div>
+          </div>
+          <div class="we" onclick="addWallEl('pillar')">
+            <div class="we-icon">⬛</div>
+            <div class="we-info"><div class="we-name">Søyle/pillar</div><div class="we-desc">300×300mm</div></div>
+          </div>
+          <div class="we" onclick="addWallEl('exit')">
+            <div class="we-icon">🟢</div>
+            <div class="we-info"><div class="we-name">Rømningsvei</div><div class="we-desc">Markering i gulv</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SKILT TAB -->
+      <div id="tab-skilt" style="display:none">
+        <div class="sbs">
+          <div class="sbl">Sorteringsmerker</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Offisielle merker fra Grønt Punkt Norge — plasseres fritt i rommet</div>
+          <div class="skilt-list" id="skilt-list"></div>
+        </div>
+      </div>
+
+      <!-- SAVED TAB -->
+      <div id="tab-saved" style="display:none">
+        <div class="sk-list" id="sk-list"><div class="sk-empty">Ingen lagrede skisser</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div class="cw" id="cw">
+    <div class="bg-grid" id="bgGrid"></div>
+    <canvas id="canvas-2d"></canvas>
+    <div id="canvas-3d"></div>
+
+    <!-- Skilt 3D position overlay — shown only in 3D when a skilt is selected -->
+    <div id="skilt3d-ctrl" style="display:none;position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(28,26,24,0.88);border-radius:10px;padding:8px 12px;align-items:center;gap:8px;z-index:20;backdrop-filter:blur(6px)">
+      <span style="font-size:10px;color:#aaa;white-space:nowrap">Skilt posisjon</span>
+      <button onclick="scene3d.nudgeSkilt(state.sel,'left')"  style="width:28px;height:28px;border-radius:6px;border:none;background:#333;color:#fff;font-size:14px;cursor:pointer">◀</button>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <button onclick="scene3d.nudgeSkilt(state.sel,'up')"   style="width:28px;height:28px;border-radius:6px;border:none;background:#333;color:#fff;font-size:14px;cursor:pointer">▲</button>
+        <button onclick="scene3d.nudgeSkilt(state.sel,'down')" style="width:28px;height:28px;border-radius:6px;border:none;background:#333;color:#fff;font-size:14px;cursor:pointer">▼</button>
+      </div>
+      <button onclick="scene3d.nudgeSkilt(state.sel,'right')" style="width:28px;height:28px;border-radius:6px;border:none;background:#333;color:#fff;font-size:14px;cursor:pointer">▶</button>
+      <span style="font-size:10px;color:#aaa;white-space:nowrap">H: <span id="skilt3d-h-lbl">1.50m</span></span>
+    </div>
+
+    <div class="ctb" id="tb2d">
+      <button class="ct act" id="tmove" onclick="setTool('move')">✥ Flytt</button>
+      <button class="ct" id="trotate" onclick="setTool('rotate')">↻ Roter</button>
+      <div class="ct-sep"></div>
+      <button class="ct" onclick="rot90()">90°</button>
+      <button class="ct" onclick="delSel()" style="color:#cc2222">✕ Slett</button>
+    </div>
+
+    <div class="ib" id="ib">Velg <b>Beholdere</b> i sidepanelet og klikk <b>+</b> for å plassere</div>
+    <div class="sr"><div class="rbar" id="rbar" style="width:80px"></div><div class="rlbl" id="rlbl">1 m</div></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="rp">
+    <div class="rpt">Detaljer</div>
+    <div id="dp"><div class="em">Velg et element</div></div>
+  </div>
+
+</div>
+
+<!-- SAVE MODAL -->
+<div class="modal-bg" id="saveModal">
+  <div class="modal">
+    <h3>Lagre skisse</h3>
+    <div class="ig"><label>Navn på skissen</label><input type="text" id="saveName" placeholder="f.eks. Bakehuset – Kjøkken"></div>
+    <div class="ig"><label>Kundenavn</label><input type="text" id="saveCustomer" placeholder="f.eks. Bakehuset AS"></div>
+    <div class="modal-footer">
+      <button class="btn btn-gh" onclick="closeSaveModal()">Avbryt</button>
+      <button class="btn btn-ng" onclick="saveSketch()">Lagre</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF MODAL -->
+<div class="modal-bg" id="pdfModal">
+  <div class="modal">
+    <h3>Eksporter PDF</h3>
+    <div class="ig"><label>Kundenavn</label><input type="text" id="pdfCustomer" placeholder="f.eks. Bakehuset AS"></div>
+    <div class="ig"><label>Adresse/lokasjon</label><input type="text" id="pdfLocation" placeholder="f.eks. Kjøkken, 2. etg."></div>
+    <div class="ig"><label>Dato</label><input type="date" id="pdfDate"></div>
+    <div class="modal-footer">
+      <button class="btn btn-gh" onclick="document.getElementById('pdfModal').classList.remove('open')">Avbryt</button>
+      <button class="btn btn-ng" onclick="generatePDF()">Generer PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/static/js/GLTFLoader.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/static/js/data.js"></script>
+<script src="/static/js/state.js"></script>
+<script src="/static/js/render2d.js"></script>
+<script src="/static/js/render3d.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

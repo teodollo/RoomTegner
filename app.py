@@ -1,11 +1,16 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
+from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import sqlite3, json, os, uuid, urllib.request
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
+API_KEY = os.environ.get("API_KEY", "")
 
 app = FastAPI()
 
@@ -19,12 +24,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob: https://pub-27fd45166dba4be8a488b48df57742df.r2.dev; "
+            "img-src 'self' data: blob: https://pub-27fd45166dba4be8a488b48df57742df.r2.dev https://www.grontpunkt.no; "
             "connect-src 'self';"
         )
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+templates = Jinja2Templates(directory="static")
+
+def require_api_key(request: Request):
+    key = request.headers.get("X-API-Key", "")
+    if not API_KEY or key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 DB = "sketches.db"
 
@@ -57,14 +69,14 @@ class SketchUpdate(BaseModel):
     data: Optional[dict] = None
     thumbnail: Optional[str] = None
 
-@app.get("/api/sketches")
+@app.get("/api/sketches", dependencies=[Depends(require_api_key)])
 def list_sketches():
     con = sqlite3.connect(DB)
     rows = con.execute("SELECT id,name,customer,created_at,updated_at FROM sketches ORDER BY updated_at DESC").fetchall()
     con.close()
     return [{"id":r[0],"name":r[1],"customer":r[2],"created_at":r[3],"updated_at":r[4]} for r in rows]
 
-@app.get("/api/sketches/{sid}")
+@app.get("/api/sketches/{sid}", dependencies=[Depends(require_api_key)])
 def get_sketch(sid: str):
     con = sqlite3.connect(DB)
     row = con.execute("SELECT * FROM sketches WHERE id=?", (sid,)).fetchone()
@@ -72,7 +84,7 @@ def get_sketch(sid: str):
     if not row: raise HTTPException(404, "Not found")
     return {"id":row[0],"name":row[1],"customer":row[2],"data":json.loads(row[3]),"thumbnail":row[4],"created_at":row[5],"updated_at":row[6]}
 
-@app.post("/api/sketches")
+@app.post("/api/sketches", dependencies=[Depends(require_api_key)])
 def create_sketch(s: SketchIn):
     sid = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -82,7 +94,7 @@ def create_sketch(s: SketchIn):
     con.commit(); con.close()
     return {"id": sid}
 
-@app.put("/api/sketches/{sid}")
+@app.put("/api/sketches/{sid}", dependencies=[Depends(require_api_key)])
 def update_sketch(sid: str, s: SketchUpdate):
     con = sqlite3.connect(DB)
     row = con.execute("SELECT * FROM sketches WHERE id=?", (sid,)).fetchone()
@@ -97,7 +109,7 @@ def update_sketch(sid: str, s: SketchUpdate):
     con.commit(); con.close()
     return {"ok": True}
 
-@app.delete("/api/sketches/{sid}")
+@app.delete("/api/sketches/{sid}", dependencies=[Depends(require_api_key)])
 def delete_sketch(sid: str):
     con = sqlite3.connect(DB)
     con.execute("DELETE FROM sketches WHERE id=?", (sid,))
@@ -128,8 +140,8 @@ def proxy_r2(filename: str):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/{full_path:path}")
-def serve_spa(full_path: str):
-    return FileResponse("static/index.html")
+def serve_spa(request: Request, full_path: str = ""):
+    return templates.TemplateResponse("index.html", {"request": request, "api_key": API_KEY})
 
 if __name__ == "__main__":
     import uvicorn

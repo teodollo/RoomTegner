@@ -89,6 +89,15 @@ header { display: flex; align-items: center; gap: 10px; padding: 0 16px; height:
 .sk-item-actions { display: flex; gap: 4px; margin-top: 6px; }
 .sk-empty { color: var(--muted2); font-size: 11px; text-align: center; padding: 24px 12px; line-height: 1.6; }
 
+/* ROOM LIST (sidebar) */
+.room-list-item { display: flex; align-items: center; gap: 5px; padding: 4px 4px 4px 2px; border-radius: 6px; margin-bottom: 2px; border: 1px solid transparent; transition: all .12s; }
+.room-list-item:hover { background: var(--hover); }
+.room-list-item.act { background: #fff5f1; border-color: #f0c0a8; }
+.room-list-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted2); flex-shrink: 0; margin-left: 2px; transition: background .12s; }
+.room-list-item.act .room-list-dot { background: var(--ng); }
+.room-list-name { flex: 1; border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--text); padding: 2px 4px; border-radius: 4px; cursor: pointer; min-width: 0; }
+.room-list-name:focus { outline: none; background: var(--white); border: 1px solid var(--ng); cursor: text; }
+
 /* CANVAS COLUMN + ROOM TABS */
 .canvas-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .room-tab-bar { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0; background: var(--white); border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }

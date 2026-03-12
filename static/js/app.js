@@ -928,6 +928,44 @@ function renderRoomTabs() {
   addBtn.textContent = '+ Rom';
   addBtn.onclick = addRoom;
   bar.appendChild(addBtn);
+  renderRoomList();
+}
+
+function renderRoomList() {
+  const el = document.getElementById('room-list-items');
+  if (!el) return;
+  el.innerHTML = '';
+  state.rooms.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'room-list-item' + (i === state.activeRoom ? ' act' : '');
+
+    const dot = document.createElement('span');
+    dot.className = 'room-list-dot';
+    row.appendChild(dot);
+
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = r.name;
+    inp.className = 'room-list-name';
+    inp.onclick = () => { if (i !== state.activeRoom) switchRoom(i); };
+    inp.onblur = () => {
+      const v = inp.value.trim();
+      if (v && v !== r.name) { r.name = v; renderRoomTabs(); scheduleAutosave(); }
+      else inp.value = r.name;
+    };
+    inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = r.name; inp.blur(); } };
+    row.appendChild(inp);
+
+    if (state.rooms.length > 1) {
+      const del = document.createElement('button');
+      del.className = 'btn-icon danger';
+      del.textContent = '✕';
+      del.title = 'Slett rom';
+      del.onclick = () => deleteRoom(i);
+      row.appendChild(del);
+    }
+    el.appendChild(row);
+  });
 }
 
 // ── Save / Load ──────────────────────────────────────────────────────────

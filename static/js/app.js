@@ -7,7 +7,20 @@ window.addEventListener('load', () => {
   setToday();
   loadSavedList();
   updateDP();
-  requestAnimationFrame(() => { resizeAll(); setRoomMode('free'); render(); });
+  // Restore last session from localStorage
+  try {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      fromSketchJSON(data);
+      state.sketchName = data.sketchName || 'Ny skisse';
+      state.customer   = data.customer   || '';
+      state.sketchId   = data.sketchId   || null;
+      document.getElementById('sketchLabel').textContent = state.sketchName;
+    }
+  } catch(e) {}
+  renderRoomTabs();
+  requestAnimationFrame(() => { resizeAll(); setRoomMode(state.roomMode); render(); });
 });
 
 function resizeAll() {
@@ -22,6 +35,7 @@ function resizeAll() {
 function render() {
   render2D();
   if (scene3d._initialized) scene3d.rebuild(); // always keep 3D in sync
+  scheduleAutosave();
 }
 
 // ── Sidebar tabs ─────────────────────────────────────────────────────────
@@ -272,9 +286,13 @@ function newSketch() {
   state.items = []; state.sel = null; state.poly = []; state.polyDone = false; state.polyDraw = false;
   state.sketchId = null; state.sketchName = 'Ny skisse'; state.customer = '';
   state.hoverPoly = null; state.polyOriginX = null; state.polyOriginY = null;
+  state.rooms = [{ id: 'room-' + Date.now(), name: 'Rom 1', data: null }];
+  state.activeRoom = 0;
   document.getElementById('sketchLabel').textContent = 'Ny skisse';
   setRoomMode('free');
   calcPPM(); updateDP(); render();
+  renderRoomTabs();
+  clearAutosave();
 }
 
 function resetRoom() {
@@ -289,7 +307,7 @@ function resetAll() {
 }
 
 function exportSketch() {
-  const data = toJSON();
+  const data = toSketchJSON();
   data.sketchName = state.sketchName || 'Ny skisse';
   data.customer   = state.customer  || '';
   data.exportedAt = new Date().toISOString();
@@ -308,13 +326,17 @@ function importSketch(e) {
   reader.onload = ev => {
     try {
       const data = JSON.parse(ev.target.result);
-      fromJSON(data);
+      fromSketchJSON(data);
       state.sketchName = data.sketchName || file.name.replace('.json','');
       state.customer   = data.customer   || '';
+      state.sketchId   = null;
       document.getElementById('sketchLabel').textContent = state.sketchName;
-      document.getElementById('rW').value = state.roomW;
-      document.getElementById('rD').value = state.roomD;
+      if (state.roomMode === 'rect') {
+        document.getElementById('rW').value = state.roomW;
+        document.getElementById('rD').value = state.roomD;
+      }
       setRoomMode(state.roomMode);
+      renderRoomTabs();
       updateDP(); render();
     } catch {
       alert('Kunne ikke lese filen. Sjekk at det er en gyldig romskisse-fil (.json).');
@@ -765,13 +787,9 @@ function checkAutoSkilt(it) {
   const w = nearestWall(it.x, it.y);
   if (!w || w.dist > 0.8) return;
   const fraksjonToSkilt = {
-    rest: 'sk-rest', papir: 'sk-papir', plast: 'sk-plast',
-    glass: 'sk-glass', metall: 'sk-metall', mat: 'sk-mat',
-    trevirke: 'sk-trevirke', boelgepapp: 'sk-boelgepapp',
-    frityrolje: 'sk-frityrolje', keramikk: 'sk-keramikk',
-    'plastfolie-farget': 'sk-plastfolie-farget',
-    'plastfolie-klar': 'sk-plastfolie-klar',
-    blandet: 'sk-blandet', ee: 'sk-ee', farlig: 'sk-farlig',
+    rest: 'sk-rest', mat: 'sk-mat', papir: 'sk-papir', papp: 'sk-papp',
+    plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
+    metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
   };
   const skiltId = fraksjonToSkilt[it.fraksjon || 'rest'];
   if (!skiltId) return;
@@ -806,13 +824,9 @@ function setFraksjon(id, fraksjon) {
   if (it.kind === 'container') {
     const nearWall = isNearAnyWall(it);
     const fraksjonToSkilt = {
-      rest: 'sk-rest', papir: 'sk-papir', plast: 'sk-plast',
-      glass: 'sk-glass', metall: 'sk-metall', mat: 'sk-mat',
-      trevirke: 'sk-trevirke', boelgepapp: 'sk-boelgepapp',
-      frityrolje: 'sk-frityrolje', keramikk: 'sk-keramikk',
-      'plastfolie-farget': 'sk-plastfolie-farget',
-      'plastfolie-klar': 'sk-plastfolie-klar',
-      blandet: 'sk-blandet', ee: 'sk-ee', farlig: 'sk-farlig',
+      rest: 'sk-rest', mat: 'sk-mat', papir: 'sk-papir', papp: 'sk-papp',
+      plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
+      metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
     };
     const skiltId = fraksjonToSkilt[fraksjon];
     const existing = state.items.find(s =>
@@ -840,6 +854,82 @@ function setSkiltSize(id, size) {
 
 function setInfo(t) { document.getElementById('ib').innerHTML = t; }
 
+// ── Multi-room management ────────────────────────────────────────────────
+function switchRoom(idx) {
+  if (idx === state.activeRoom) return;
+  state.rooms[state.activeRoom].data = toJSON();
+  state.activeRoom = idx;
+  state.sel = null;
+  const room = state.rooms[idx];
+  fromJSON(room.data || { roomMode: 'free', poly: [], polyDone: false, items: [] });
+  document.getElementById('rW').value = state.roomW;
+  document.getElementById('rD').value = state.roomD;
+  document.getElementById('rHF').value = state.roomH;
+  showCancelBtn(state.polyDraw && !state.polyDone);
+  calcPPM(); setRoomMode(state.roomMode); updateDP();
+  renderRoomTabs();
+}
+
+function addRoom() {
+  state.rooms[state.activeRoom].data = toJSON();
+  const n = state.rooms.length + 1;
+  state.rooms.push({ id: 'room-' + Date.now(), name: 'Rom ' + n, data: null });
+  switchRoom(state.rooms.length - 1);
+}
+
+function deleteRoom(idx) {
+  if (state.rooms.length <= 1) { toast('Kan ikke slette siste rom'); return; }
+  if (!confirm(`Slett "${state.rooms[idx].name}"?`)) return;
+  state.rooms.splice(idx, 1);
+  const newIdx = Math.min(idx < state.activeRoom ? state.activeRoom - 1 : Math.min(state.activeRoom, state.rooms.length - 1), state.rooms.length - 1);
+  state.activeRoom = -1; // force reload in switchRoom
+  state.activeRoom = newIdx;
+  state.sel = null;
+  const room = state.rooms[newIdx];
+  fromJSON(room.data || { roomMode: 'free', poly: [], polyDone: false, items: [] });
+  document.getElementById('rW').value = state.roomW;
+  document.getElementById('rD').value = state.roomD;
+  document.getElementById('rHF').value = state.roomH;
+  calcPPM(); setRoomMode(state.roomMode); updateDP();
+  renderRoomTabs();
+}
+
+function renameRoom(idx) {
+  const name = prompt('Nytt navn på rom:', state.rooms[idx].name);
+  if (!name || !name.trim()) return;
+  state.rooms[idx].name = name.trim();
+  renderRoomTabs();
+  scheduleAutosave();
+}
+
+function renderRoomTabs() {
+  const bar = document.getElementById('room-tabs');
+  if (!bar) return;
+  bar.innerHTML = '';
+  state.rooms.forEach((r, i) => {
+    const tab = document.createElement('button');
+    tab.className = 'room-tab' + (i === state.activeRoom ? ' act' : '');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = r.name;
+    tab.appendChild(nameSpan);
+    tab.onclick = () => switchRoom(i);
+    tab.ondblclick = () => renameRoom(i);
+    if (state.rooms.length > 1) {
+      const del = document.createElement('span');
+      del.className = 'room-tab-del';
+      del.textContent = '×';
+      del.onclick = e => { e.stopPropagation(); deleteRoom(i); };
+      tab.appendChild(del);
+    }
+    bar.appendChild(tab);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.className = 'room-tab-add';
+  addBtn.textContent = '+ Rom';
+  addBtn.onclick = addRoom;
+  bar.appendChild(addBtn);
+}
+
 // ── Save / Load ──────────────────────────────────────────────────────────
 function openSaveModal() {
   document.getElementById('saveName').value = state.sketchName;
@@ -853,7 +943,7 @@ async function saveSketch() {
   const customer = document.getElementById('saveCustomer').value.trim();
   state.sketchName = name; state.customer = customer;
   document.getElementById('sketchLabel').textContent = name;
-  const data = toJSON();
+  const data = toSketchJSON();
   const thumb = document.getElementById('canvas-2d').toDataURL('image/png', 0.4);
   if (state.sketchId) {
     await api.update(state.sketchId, { name, customer, data, thumbnail: thumb });
@@ -862,6 +952,7 @@ async function saveSketch() {
     state.sketchId = res.id;
   }
   closeSaveModal();
+  autosave();
   toast('Lagret ✓');
 }
 
@@ -894,7 +985,7 @@ async function loadSavedList() {
 
 async function loadSketch(id) {
   const sk = await api.get(id);
-  fromJSON(sk.data);
+  fromSketchJSON(sk.data);
   state.sketchId = sk.id; state.sketchName = sk.name; state.customer = sk.customer;
   document.getElementById('sketchLabel').textContent = sk.name;
   if (state.roomMode === 'rect') {
@@ -903,6 +994,8 @@ async function loadSketch(id) {
     document.getElementById('rH').value = state.roomH;
   }
   calcPPM(); updateDP(); render();
+  renderRoomTabs();
+  autosave();
   toast('Lastet: ' + sk.name);
 }
 

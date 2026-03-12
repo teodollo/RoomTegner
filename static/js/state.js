@@ -22,6 +22,9 @@ const state = {
   shiftDown: false,
   spaceDown: false,
   panning: false, panSX: 0, panSY: 0, panOX: 0, panOY: 0,
+  // Multi-room support
+  rooms: [{ id: 'room-1', name: 'Rom 1', data: null }],
+  activeRoom: 0,
 };
 
 function getO() {
@@ -63,10 +66,11 @@ function calcPPM() {
   document.getElementById('rbar').style.width = getPPM() + 'px';
 }
 
+// ── Single-room serialisation (used internally) ────────────────────────────
 function toJSON() {
   return {
     roomMode: state.roomMode, roomW: state.roomW, roomD: state.roomD, roomH: state.roomH,
-    poly: state.poly, polyDone: state.polyDone,
+    poly: state.poly, polyDone: state.polyDone, polyDraw: state.polyDraw,
     items: state.items.map(it => ({
       id: it.id, typeId: it.typeId, kind: it.kind,
       x: it.x, y: it.y, rot: it.rot, fraksjon: it.fraksjon || 'rest',
@@ -83,6 +87,7 @@ function fromJSON(d) {
   state.roomMode = d.roomMode || 'free';
   state.roomW = d.roomW || 6; state.roomD = d.roomD || 4; state.roomH = d.roomH || 2.8;
   state.poly = d.poly || []; state.polyDone = d.polyDone || false;
+  state.polyDraw = d.polyDraw || false;
   state.items = (d.items || []).map(it => {
     let def = null;
     if (it.kind === 'container') def = DEFS.find(x => x.id === it.typeId);
@@ -92,4 +97,51 @@ function fromJSON(d) {
   });
   state.nextId = state.items.reduce((m, i) => Math.max(m, i.id + 1), 1);
   calcPPM();
+}
+
+// ── Multi-room / building serialisation ───────────────────────────────────
+function toSketchJSON() {
+  const rooms = state.rooms.map((r, i) => ({
+    id: r.id,
+    name: r.name,
+    data: i === state.activeRoom ? toJSON() : (r.data || { roomMode: 'free', poly: [], polyDone: false, items: [] })
+  }));
+  return { version: 2, rooms, activeRoom: state.activeRoom };
+}
+
+function fromSketchJSON(d) {
+  // Legacy single-room format (no rooms array)
+  if (!d.rooms) {
+    state.rooms = [{ id: 'room-1', name: 'Rom 1', data: d }];
+    state.activeRoom = 0;
+    fromJSON(d);
+    return;
+  }
+  state.rooms = d.rooms;
+  state.activeRoom = Math.min(d.activeRoom || 0, d.rooms.length - 1);
+  const room = state.rooms[state.activeRoom];
+  fromJSON(room.data || { roomMode: 'free', poly: [], polyDone: false, items: [] });
+}
+
+// ── localStorage auto-save ─────────────────────────────────────────────────
+const AUTOSAVE_KEY = 'roomtegner_draft';
+let _autosaveTimer = null;
+
+function scheduleAutosave() {
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(autosave, 800);
+}
+
+function autosave() {
+  try {
+    const d = toSketchJSON();
+    d.sketchName = state.sketchName;
+    d.customer = state.customer;
+    d.sketchId = state.sketchId;
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(d));
+  } catch(e) {}
+}
+
+function clearAutosave() {
+  localStorage.removeItem(AUTOSAVE_KEY);
 }

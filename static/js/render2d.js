@@ -7,9 +7,20 @@ function render2D() {
   ctx.clearRect(0, 0, W, H);
   const { ox, oy } = getO();
 
+  // ── Floor drop shadow ───────────────────────────────────────────────
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.18)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetX = 3;
+  ctx.shadowOffsetY = 4;
+  floorPath(ctx);
+  ctx.fillStyle = '#ede9e2';
+  ctx.fill();
+  ctx.restore();
+
   // ── Floor fill ──────────────────────────────────────────────────────
   floorPath(ctx);
-  ctx.fillStyle = '#fafaf8';
+  ctx.fillStyle = '#f5f2ec';
   ctx.fill();
 
   // ── Grid (kun i vegg-bygger modus) ──────────────────────────────────
@@ -17,19 +28,19 @@ function render2D() {
     const ppm = getPPM();
     const startX = ((ox % ppm) + ppm) % ppm;
     const startY = ((oy % ppm) + ppm) % ppm;
-    // 1m linjer — veldig subtile
-    ctx.strokeStyle = 'rgba(180,175,168,0.35)'; ctx.lineWidth = 0.5;
+    // 1m linjer
+    ctx.strokeStyle = 'rgba(160,154,144,0.30)'; ctx.lineWidth = 0.7;
     for (let x = startX; x <= W; x += ppm) {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
     for (let y = startY; y <= H; y += ppm) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
     }
-    // 5m linjer — litt mer synlige
+    // 5m linjer
     const ppm5 = ppm * 5;
     const startX5 = ((ox % ppm5) + ppm5) % ppm5;
     const startY5 = ((oy % ppm5) + ppm5) % ppm5;
-    ctx.strokeStyle = 'rgba(150,144,136,0.5)'; ctx.lineWidth = 0.8;
+    ctx.strokeStyle = 'rgba(130,122,112,0.45)'; ctx.lineWidth = 1;
     for (let x = startX5; x <= W; x += ppm5) {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
@@ -39,14 +50,17 @@ function render2D() {
   }
 
   // ── Walls ────────────────────────────────────────────────────────────
-  const wallT = Math.max(6, getPPM() * 0.06);
+  const wallT = Math.max(10, getPPM() * 0.09);
   ctx.save(); floorPath(ctx); ctx.clip();
-  ctx.strokeStyle = '#d0cdc8'; ctx.lineWidth = wallT * 2;
+  ctx.strokeStyle = '#b8b4ac'; ctx.lineWidth = wallT * 2;
   floorPath(ctx); ctx.stroke();
   ctx.restore();
 
+  // Wall border inner shadow line
+  floorPath(ctx); ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = wallT * 0.4; ctx.stroke();
+
   // Wall border (outer)
-  floorPath(ctx); ctx.strokeStyle = '#1c1a18'; ctx.lineWidth = 2.5; ctx.stroke();
+  floorPath(ctx); ctx.strokeStyle = '#1c1a18'; ctx.lineWidth = 3.5; ctx.stroke();
 
   // ── Poly draw nodes ──────────────────────────────────────────────────
   if (state.roomMode === 'free') {
@@ -63,9 +77,9 @@ function render2D() {
         const mx2 = (ax+bx)/2, my2 = (ay+by)/2;
         const angle = Math.atan2(by-ay, bx-ax);
         ctx.translate(mx2, my2); ctx.rotate(angle);
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(-18, -9, 36, 14, 3); ctx.fill();
-        ctx.fillStyle = '#333'; ctx.font = 'bold 9px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(len.toFixed(1)+'m', 0, -2);
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(-20, -10, 40, 16, 3); ctx.fill();
+        ctx.fillStyle = '#222'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(len.toFixed(1)+'m', 0, -1);
         ctx.restore();
       }
     }
@@ -107,8 +121,8 @@ function render2D() {
           const angle = Math.atan2(hy - ly, hx - lx);
           ctx.translate((lx+hx)/2, (ly+hy)/2); ctx.rotate(angle);
           ctx.fillStyle = state.shiftDown ? NG_ORANGE : '#555';
-          ctx.beginPath(); ctx.roundRect(-18, -9, 36, 14, 3); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Inter,sans-serif';
+          ctx.beginPath(); ctx.roundRect(-22, -10, 44, 16, 3); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Inter,sans-serif';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           ctx.fillText(dist.toFixed(2)+'m', 0, -2);
         }
@@ -163,17 +177,17 @@ function render2D() {
     [[-rD/2,0],[rD/2,0]].forEach(([tx]) => {
       ctx.beginPath(); ctx.moveTo(tx-3, -3); ctx.lineTo(tx+3, 3); ctx.stroke();
     });
-    ctx.fillStyle = '#f8f7f5'; ctx.beginPath(); ctx.roundRect(-tw2/2, -9, tw2, 14, 3); ctx.fill();
-    ctx.fillStyle = '#2c3e50'; ctx.font = 'bold 10px Inter,sans-serif';
+    ctx.fillStyle = '#f5f2ec'; ctx.beginPath(); ctx.roundRect(-tw2/2 - 2, -10, tw2 + 4, 16, 3); ctx.fill();
+    ctx.fillStyle = '#1c2a3a'; ctx.font = 'bold 11px Inter,sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(lbl2, 0, -1);
     ctx.restore();
 
     // Area label bottom-right
     const area = (state.roomW * state.roomD).toFixed(1);
-    ctx.fillStyle = 'rgba(92,106,122,0.85)';
-    ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`${area} m²`, ox + rW - 4, oy + rD - 4);
+    ctx.fillStyle = 'rgba(60,75,90,0.88)';
+    ctx.font = 'bold 12px Inter,sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`${area} m²`, ox + rW - 6, oy + rD - 6);
 
   } else if (state.roomMode === 'free' && state.polyDone && state.poly.length > 2) {
     // Show total perimeter and area for free-form room
@@ -185,8 +199,8 @@ function render2D() {
       area += a.x * b.y - b.x * a.y;
     }
     area = Math.abs(area) / 2;
-    ctx.fillStyle = 'rgba(92,106,122,0.85)';
-    ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(60,75,90,0.88)';
+    ctx.font = 'bold 13px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const cx2 = state.poly.reduce((s,p)=>s+p.x,0)/n * getPPM() + ox;
     const cy2 = state.poly.reduce((s,p)=>s+p.y,0)/n * getPPM() + oy;
     ctx.fillText(`${area.toFixed(1)} m²`, cx2, cy2);
@@ -294,9 +308,9 @@ function render2D() {
   ctx.lineWidth = 1; ctx.strokeStyle = '#888';
   ctx.beginPath(); ctx.moveTo(sx + barPx/2, sy+4); ctx.lineTo(sx + barPx/2, sy+12); ctx.stroke();
   // Label
-  ctx.fillStyle = '#1c1a18'; ctx.font = 'bold 9px Inter,sans-serif';
+  ctx.fillStyle = '#1c1a18'; ctx.font = 'bold 11px Inter,sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`${scaleM} m`, sx + barPx/2, sy + 2);
+  ctx.fillText(`${scaleM} m`, sx + barPx/2, sy + 1);
 }
 
 function floorPath(ctx) {
@@ -342,10 +356,10 @@ function drawDimLine(ctx, x1, y1, x2, y2, lbl) {
   const angle = Math.atan2(dy, dx);
   ctx.translate(mx, my); ctx.rotate(angle);
   const tw = ctx.measureText(lbl).width + 10;
-  ctx.fillStyle = '#f8f7f5';
-  ctx.beginPath(); ctx.roundRect(-tw/2, -9, tw, 14, 3); ctx.fill();
-  ctx.fillStyle = '#2c3e50';
-  ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#f5f2ec';
+  ctx.beginPath(); ctx.roundRect(-tw/2 - 2, -10, tw + 4, 16, 3); ctx.fill();
+  ctx.fillStyle = '#1c2a3a';
+  ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(lbl, 0, -1);
   ctx.restore();
 }
@@ -398,7 +412,7 @@ function drawBin2D(ctx, bw, bd, isSel, def, fraksjon) {
   ctx.fillText('NG', 0, bY + bH/2);
 
   // Fraction label — most important info
-  const frFs = Math.max(6, Math.min(9, bw / 8));
+  const frFs = Math.max(8, Math.min(12, bw / 6.5));
   ctx.fillStyle = 'rgba(255,255,255,0.90)';
   ctx.font = `bold ${frFs}px Inter,sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

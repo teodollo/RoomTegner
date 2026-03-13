@@ -204,8 +204,8 @@ function setRoomMode(m) {
     state.polyDraw = true;
     const c = document.getElementById('canvas-2d');
     c.style.cursor = 'crosshair';
-    state.polyOriginX = c.width / 2;
-    state.polyOriginY = c.height / 2;
+    state.polyOriginX = c.clientWidth / 2;
+    state.polyOriginY = c.clientHeight / 2;
     showCancelBtn(true);
     setInfo('Klikk for første hjørnepunkt · Shift=90° · Ctrl+Z / Esc=angre punkt · Scroll=zoom · Dbl-klikk=lukk rom');
   }
@@ -311,14 +311,16 @@ function newSketch() {
 }
 
 function resetRoom() {
-  if (!confirm('Fjerne alle beholdere?\nRomtegningen beholdes.')) return;
-  state.items = []; state.sel = null;
-  updateDP(); render();
+  showConfirm('Fjerne alle beholdere?\nRomtegningen beholdes.', () => {
+    state.items = []; state.sel = null;
+    updateDP(); render();
+  }, { icon: '🗑️', yesLabel: 'Tøm rom' });
 }
 
 function resetAll() {
-  if (!confirm('Slette hele skissen inkludert rom og alle beholdere?\nDenne handlingen kan ikke angres.')) return;
-  newSketch();
+  showConfirm('Slette hele skissen inkludert rom og alle beholdere?\nDenne handlingen kan ikke angres.', () => {
+    newSketch();
+  }, { icon: '⚠️', yesLabel: 'Nullstill alt' });
 }
 
 function exportSketch() {
@@ -354,7 +356,7 @@ function importSketch(e) {
       renderRoomTabs();
       updateDP(); render();
     } catch {
-      alert('Kunne ikke lese filen. Sjekk at det er en gyldig romskisse-fil (.json).');
+      showAlert('Kunne ikke lese filen.\nSjekk at det er en gyldig romskisse-fil (.json).', { icon: '❌' });
     }
   };
   reader.readAsText(file);
@@ -503,6 +505,7 @@ function onMD(e) {
   }
   for (let i = state.items.length - 1; i >= 0; i--) {
     const it = state.items[i];
+    if (it.kind === 'skilt') continue; // skilt er usynlig i 2D — ikke blokkér drag
     if (hitTest(it, mx, my)) {
       state.sel = it.id;
       const { ox, oy } = getO();
@@ -671,7 +674,9 @@ function onKey(e) {
 // ── View ──────────────────────────────────────────────────────────────────
 function setView(v, btn) {
   state.view = v;
-  document.querySelectorAll('.vb').forEach(b => b.classList.remove('act')); btn.classList.add('act');
+  document.querySelectorAll('.vb').forEach(b => {
+    b.classList.toggle('act', btn ? b === btn : b.textContent.trim() === v.toUpperCase());
+  });
   document.getElementById('canvas-2d').style.display = v === '2d' ? 'block' : 'none';
   document.getElementById('canvas-3d').style.display = v === '3d' ? 'block' : 'none';
   document.getElementById('bgGrid').style.display = v === '2d' ? 'block' : 'none';
@@ -869,6 +874,50 @@ function setSkiltSize(id, size) {
 
 function setInfo(t) { document.getElementById('ib').innerHTML = t; }
 
+// ── In-app dialog (replaces browser confirm/alert) ────────────────────────
+let _dialogCb = null;
+function dialogResolve(yes) {
+  const inp = document.getElementById('dialogInput');
+  const val = inp.value;
+  inp.style.display = 'none'; inp.value = '';
+  document.getElementById('dialogModal').classList.remove('open');
+  const cb = _dialogCb; _dialogCb = null;
+  if (cb) cb(yes, val);
+}
+function showConfirm(msg, onYes, { icon = '⚠️', yesLabel = 'OK', danger = true } = {}) {
+  document.getElementById('dialogIcon').textContent = icon;
+  document.getElementById('dialogMsg').textContent = msg;
+  const okBtn = document.getElementById('dialogOk');
+  okBtn.textContent = yesLabel;
+  okBtn.className = 'btn' + (danger ? ' btn-danger danger' : ' btn-ng');
+  document.getElementById('dialogCancel').style.display = '';
+  document.getElementById('dialogInput').style.display = 'none';
+  _dialogCb = yes => { if (yes) onYes(); };
+  document.getElementById('dialogModal').classList.add('open');
+}
+function showAlert(msg, { icon = 'ℹ️' } = {}) {
+  document.getElementById('dialogIcon').textContent = icon;
+  document.getElementById('dialogMsg').textContent = msg;
+  const okBtn = document.getElementById('dialogOk');
+  okBtn.textContent = 'OK'; okBtn.className = 'btn btn-ng';
+  document.getElementById('dialogCancel').style.display = 'none';
+  document.getElementById('dialogInput').style.display = 'none';
+  _dialogCb = null;
+  document.getElementById('dialogModal').classList.add('open');
+}
+function showPrompt(msg, defaultVal, onConfirm, { icon = '✏️', yesLabel = 'Lagre' } = {}) {
+  document.getElementById('dialogIcon').textContent = icon;
+  document.getElementById('dialogMsg').textContent = msg;
+  const okBtn = document.getElementById('dialogOk');
+  okBtn.textContent = yesLabel; okBtn.className = 'btn btn-ng';
+  document.getElementById('dialogCancel').style.display = '';
+  const inp = document.getElementById('dialogInput');
+  inp.style.display = 'block'; inp.value = defaultVal || '';
+  _dialogCb = (yes, val) => { if (yes && val && val.trim()) onConfirm(val.trim()); };
+  document.getElementById('dialogModal').classList.add('open');
+  setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
 // ── Multi-room management ────────────────────────────────────────────────
 function switchRoom(idx) {
   if (idx === state.activeRoom) return;
@@ -889,32 +938,35 @@ function addRoom() {
   state.rooms[state.activeRoom].data = toJSON();
   const n = state.rooms.length + 1;
   state.rooms.push({ id: 'room-' + Date.now(), name: 'Rom ' + n, data: null });
+  if (state.view === '3d') setView('2d');
   switchRoom(state.rooms.length - 1);
 }
 
 function deleteRoom(idx) {
   if (state.rooms.length <= 1) { toast('Kan ikke slette siste rom'); return; }
-  if (!confirm(`Slett "${state.rooms[idx].name}"?`)) return;
-  state.rooms.splice(idx, 1);
-  const newIdx = Math.min(idx < state.activeRoom ? state.activeRoom - 1 : Math.min(state.activeRoom, state.rooms.length - 1), state.rooms.length - 1);
-  state.activeRoom = -1; // force reload in switchRoom
-  state.activeRoom = newIdx;
-  state.sel = null;
-  const room = state.rooms[newIdx];
-  fromJSON(room.data || { roomMode: 'free', poly: [], polyDone: false, items: [] });
-  document.getElementById('rW').value = state.roomW;
-  document.getElementById('rD').value = state.roomD;
-  document.getElementById('rHF').value = state.roomH;
-  calcPPM(); setRoomMode(state.roomMode); updateDP();
-  renderRoomTabs();
+  const roomName = state.rooms[idx].name;
+  showConfirm(`Slett rommet «${roomName}»?\nDette kan ikke angres.`, () => {
+    state.rooms.splice(idx, 1);
+    const newIdx = Math.min(idx < state.activeRoom ? state.activeRoom - 1 : Math.min(state.activeRoom, state.rooms.length - 1), state.rooms.length - 1);
+    state.activeRoom = -1;
+    state.activeRoom = newIdx;
+    state.sel = null;
+    const room = state.rooms[newIdx];
+    fromJSON(room.data || { roomMode: 'free', poly: [], polyDone: false, items: [] });
+    document.getElementById('rW').value = state.roomW;
+    document.getElementById('rD').value = state.roomD;
+    document.getElementById('rHF').value = state.roomH;
+    calcPPM(); setRoomMode(state.roomMode); updateDP();
+    renderRoomTabs();
+  }, { icon: '🗑️', yesLabel: 'Slett rom' });
 }
 
 function renameRoom(idx) {
-  const name = prompt('Nytt navn på rom:', state.rooms[idx].name);
-  if (!name || !name.trim()) return;
-  state.rooms[idx].name = name.trim();
-  renderRoomTabs();
-  scheduleAutosave();
+  showPrompt('Nytt navn på rommet:', state.rooms[idx].name, name => {
+    state.rooms[idx].name = name;
+    renderRoomTabs();
+    scheduleAutosave();
+  }, { icon: '✏️', yesLabel: 'Lagre' });
 }
 
 function renderRoomTabs() {

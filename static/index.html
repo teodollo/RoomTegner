@@ -207,6 +207,20 @@
   </div>
 </div>
 
+<!-- IN-APP DIALOG (replaces browser confirm/alert) -->
+<div class="modal-bg" id="dialogModal">
+  <div class="modal modal-dialog">
+    <div class="dialog-icon" id="dialogIcon"></div>
+    <p class="dialog-msg" id="dialogMsg"></p>
+    <input type="text" id="dialogInput" class="dialog-input" style="display:none"
+      onkeydown="if(event.key==='Enter')dialogResolve(true);if(event.key==='Escape')dialogResolve(false)">
+    <div class="modal-footer">
+      <button class="btn btn-gh" id="dialogCancel" onclick="dialogResolve(false)">Avbryt</button>
+      <button class="btn" id="dialogOk" onclick="dialogResolve(true)">OK</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <div class="autosave-banner" id="autosave-banner" style="display:none">
   <span id="autosave-banner-text">Gjenopprettet fra forrige sesjon</span>

@@ -79,7 +79,7 @@ const scene3d = (() => {
         case 'ArrowLeft':
         case 'ArrowRight': {
           e.preventDefault();
-          const dir = e.key === 'ArrowLeft' ? 1 : -1;
+          const dir = e.key === 'ArrowLeft' ? -1 : 1;
           orbit.target.x += Math.cos(orbit.theta) * step * dir;
           orbit.target.z -= Math.sin(orbit.theta) * step * dir;
           updateOrbitCamera();
@@ -157,12 +157,15 @@ const scene3d = (() => {
     const W = container.clientWidth, H = container.clientHeight;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf2f1ef);
+    scene.background = new THREE.Color(0xb0b8bf);
+    scene.fog = new THREE.Fog(0xb0b8bf, 18, 60);
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(W, H);
-    renderer.shadowMap.enabled = false;
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
     // Camera
@@ -170,14 +173,24 @@ const scene3d = (() => {
     resetOrbit();
     initOrbit();
 
-    // Lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    // Lights — industrial overhead feel
+    const ambient = new THREE.AmbientLight(0xc8d4de, 0.55);
     scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-    sun.position.set(10, 20, 10);
+    const sun = new THREE.DirectionalLight(0xfff6d8, 1.2);
+    sun.position.set(8, 16, 10);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 1024;
+    sun.shadow.mapSize.height = 1024;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 60;
+    sun.shadow.camera.left = -16;
+    sun.shadow.camera.right = 16;
+    sun.shadow.camera.top = 16;
+    sun.shadow.camera.bottom = -16;
+    sun.shadow.bias = -0.001;
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xfff0e8, 0.3);
-    fill.position.set(-5, 8, -5);
+    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.3);
+    fill.position.set(-8, 6, -8);
     scene.add(fill);
 
     initialized = true;
@@ -244,36 +257,56 @@ const scene3d = (() => {
     return mesh;
   }
 
+  function setShadow(obj, cast = true, receive = true) {
+    obj.traverse(child => {
+      if (child.isMesh) { child.castShadow = cast; child.receiveShadow = receive; }
+    });
+  }
+
   function addMesh(m) { scene.add(m); meshes.push(m); return m; }
 
   function buildRoom() {
     const H = state.roomH;
     const thick = 0.12;
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0xe8e5e0, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0xb0aca6 });
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0xc8c4be, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x706c66 });
 
     if (state.roomMode === 'rect') {
       const W = state.roomW, D = state.roomD;
 
-      // Floor
-      const floor = box(W, thick, D, 0xf0ede8);
-      floor.position.set(W/2, -thick/2, D/2);
-      addMesh(floor);
+      // Floor — concrete
+      const floorMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(W, thick, D),
+        new THREE.MeshLambertMaterial({ color: 0x6e6b67 })
+      );
+      floorMesh.position.set(W/2, -thick/2, D/2);
+      floorMesh.receiveShadow = true;
+      addMesh(floorMesh);
 
-      // Floor grid
+      // Floor expansion joints (1m grid, darker lines)
       const gpts = [];
-      for (let i = 0; i <= Math.ceil(W); i++) { gpts.push(i,0.01,0, i,0.01,D); }
-      for (let i = 0; i <= Math.ceil(D); i++) { gpts.push(0,0.01,i, W,0.01,i); }
+      for (let i = 0; i <= Math.ceil(W); i++) { gpts.push(i,0.005,0, i,0.005,D); }
+      for (let i = 0; i <= Math.ceil(D); i++) { gpts.push(0,0.005,i, W,0.005,i); }
       const gg = new THREE.BufferGeometry();
       gg.setAttribute('position', new THREE.Float32BufferAttribute(gpts, 3));
-      addMesh(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0xd8d4ce })));
+      addMesh(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x4a4845 })));
 
       // 4 walls
       [[W,H,thick,W/2,H/2,0],[thick,H,D,0,H/2,D/2],[thick,H,D,W,H/2,D/2],[W,H,thick,W/2,H/2,D]]
         .forEach(([w,h,d,px,py,pz]) => {
           const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), wallMat.clone());
-          m.position.set(px,py,pz); addMesh(m);
+          m.position.set(px,py,pz);
+          m.receiveShadow = true;
+          addMesh(m);
         });
+
+      // Ceiling — semi-opaque industrial panel
+      const ceilMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(W, 0.06, D),
+        new THREE.MeshLambertMaterial({ color: 0x9a9690, transparent: true, opacity: 0.45 })
+      );
+      ceilMesh.position.set(W/2, H + 0.03, D/2);
+      addMesh(ceilMesh);
 
       // Edge lines
       [[[0,0,0],[W,0,0],[W,H,0],[0,H,0],[0,0,0]],
@@ -304,7 +337,8 @@ const scene3d = (() => {
       }
       floorShape.attributes.position.needsUpdate = true;
       floorShape.computeVertexNormals();
-      const floorMesh = new THREE.Mesh(floorShape, new THREE.MeshLambertMaterial({ color: 0xf0ede8, side: THREE.DoubleSide }));
+      const floorMesh = new THREE.Mesh(floorShape, new THREE.MeshLambertMaterial({ color: 0x6e6b67, side: THREE.DoubleSide }));
+      floorMesh.receiveShadow = true;
       addMesh(floorMesh);
 
       // Walls — one per edge
@@ -340,54 +374,19 @@ const scene3d = (() => {
   // ── Skilt (sorteringsmerke) ───────────────────────────────────────────
   const _skilt3dTexCache = {};
 
-  // Fraksjon colours matching data.js FRAKSJONER
-  const GPN = 'https://www.grontpunkt.no/media';
-  // Offisielle GPN-ikoner — samme URL som sidefanen bruker
+  // Offisielle sortere.no PNG-ikoner lastet via R2-proxy
   const SKILT_STYLE = {
-    'sk-rest':              { label: 'Restavfall',         iconUrl: `${GPN}/5mqa5ve3/restavfall_64px.svg`              },
-    'sk-papir':             { label: 'Kartong og papp',    iconUrl: `${GPN}/remntsir/plast_64px.svg`                   },
-    'sk-plast':             { label: 'Plastemballasje',    iconUrl: `${GPN}/burfzyb5/plastemballasje_64px.svg`         },
-    'sk-glass':             { label: 'Glassemballasje',    iconUrl: `${GPN}/ehkhlw3r/emballasje-glass-materialslag-glassemballasje.svg` },
-    'sk-metall':            { label: 'Metallemballasje',   iconUrl: `${GPN}/wvfndvhi/metall_64px.svg`                  },
-    'sk-drikke':            { label: 'Drikkekartong',      iconUrl: `${GPN}/uvsflcgw/drikkekartong_64px.svg`           },
-    'sk-farlig':            { label: 'Farlig avfall',      iconUrl: `${GPN}/y5da2wn4/farlig-avfall_64px.svg`           },
-    'sk-tre':               { label: 'Treemballasje',      iconUrl: `${GPN}/paylexmu/treemballasje_64px.svg`           },
-    // NG-spesifikke fraksjoner — ikoner cropet fra NG PDF-er, lastet via R2
-    'sk-mat':               { label: 'Matavfall',          iconUrl: null, r2: 'icon-mat.png'               },
-    'sk-trevirke':          { label: 'Trevirke',           iconUrl: null, r2: 'icon-trevirke.png'          },
-    'sk-boelgepapp':        { label: 'Bølgepapp',         iconUrl: null, r2: 'icon-boelgepapp.png'        },
-    'sk-frityrolje':        { label: 'Frityrolje',        iconUrl: null, r2: 'icon-frityrolje.png'        },
-    'sk-keramikk':          { label: 'Keramikk/porselen', iconUrl: null, r2: 'icon-keramikk.png'          },
-    'sk-plastfolie-farget': { label: 'Plastfolie farget', iconUrl: null, r2: 'icon-plastfolie-farget.png' },
-    'sk-plastfolie-klar':   { label: 'Plastfolie klar',   iconUrl: null, r2: 'icon-plastfolie-klar.png'   },
-    // Ingen offisielt GPN-ikon — tegnes inline med Canvas
-    'sk-ee':      { label: 'EE-avfall',   iconUrl: null, bg: '#4a148c', drawIcon: (ctx, SZ, H) => {
-      // Lyspære
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = SZ*0.06; ctx.fillStyle = '#fff';
-      const cx = SZ/2, cy = H*0.44, r = H*0.28;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
-      // Sokkel
-      ctx.beginPath(); ctx.roundRect(cx-r*0.4, cy+r*0.75, r*0.8, r*0.55, 4); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx-r*0.4, cy+r*1.0); ctx.lineTo(cx+r*0.4, cy+r*1.0); ctx.stroke();
-      // Glødtråd
-      ctx.lineWidth = SZ*0.025;
-      ctx.beginPath(); ctx.moveTo(cx, cy-r*0.4); ctx.lineTo(cx, cy+r*0.3); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy+r*0.05, r*0.18, Math.PI, 0); ctx.stroke();
-    }},
-    'sk-blandet': { label: 'Kontorpapir', iconUrl: null, bg: '#1565c0', drawIcon: (ctx, SZ, H) => {
-      // Stablede ark
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = SZ*0.045;
-      [[14,10],[7,5],[0,0]].forEach(([ox,oy]) => {
-        ctx.beginPath();
-        ctx.roundRect(SZ*0.18+ox, H*0.15+oy, SZ*0.60, H*0.68, 6);
-        ctx.stroke();
-      });
-      // Linjer på øverste ark
-      ctx.lineWidth = SZ*0.03;
-      [0.38, 0.50, 0.62].forEach(ly => {
-        ctx.beginPath(); ctx.moveTo(SZ*0.28, H*ly); ctx.lineTo(SZ*0.72, H*ly); ctx.stroke();
-      });
-    }},
+    'sk-rest':       { label: 'Restavfall',                r2: 'Restavfall_web.png'             },
+    'sk-mat':        { label: 'Matavfall',                 r2: 'Matavfall_web.png'              },
+    'sk-glass':      { label: 'Glass og metallemballasje', r2: 'Glass_metallemballasje_web.png' },
+    'sk-papir':      { label: 'Papp og Papir',             r2: 'Papp_og_papir_web.png'          },
+    'sk-papp':       { label: 'Papp',                      r2: 'Papp_web.png'                   },
+    'sk-plast':      { label: 'Plastemballasje',           r2: 'Plastemballasje_web.png'        },
+    'sk-plastfolie': { label: 'Plastfolie',                r2: 'Plastfolie_web.png'             },
+    'sk-metall':     { label: 'Metall',                    r2: 'Jern_og_metaller_web.png'       },
+    'sk-eps':        { label: 'EPS',                       r2: 'EPS_web.png'                    },
+    'sk-farlig':     { label: 'Farlig avfall',             r2: 'Farlig_avfall_web.png'          },
+    'sk-ee':         { label: 'EE-avfall',                 r2: 'Elektronikk_web.png'            },
   };
 
   function makeSkiltTexture(typeId) {
@@ -428,11 +427,19 @@ const scene3d = (() => {
       return tex;
     }
 
-    // Option 2: URL (GPN SVG or R2 PNG)
-    const url = S.iconUrl || (S.r2 ? `https://pub-27fd45166dba4be8a488b48df57742df.r2.dev/${S.r2}` : null);
+    // Option 2: R2 full-image PNG (sortere.no offisielle skilt) — tegnes over hele canvas
+    if (S.r2) {
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, SZ, SZ); tex.needsUpdate = true; };
+      img.onerror = () => { ctx.fillStyle = '#555'; ctx.fillRect(0, 0, SZ, SZ); drawLabel(); };
+      img.src = `/r2/${S.r2}`;
+      return tex;
+    }
+
+    // Option 3: URL — GPN SVG-ikoner direkte
+    const url = S.iconUrl || null;
     if (url) {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
       img.onload = () => { ctx.drawImage(img, 0, 0, SZ, ICON_H); drawLabel(); };
       img.onerror = () => { ctx.fillStyle = S.bg || '#555'; ctx.fillRect(0, 0, SZ, ICON_H); drawLabel(); };
       img.src = url;
@@ -458,15 +465,7 @@ const scene3d = (() => {
       ];
       return dists.reduce((a,b) => a.d < b.d ? a : b);
     }
-    // Free mode: use stored wall normal from checkAutoSkilt
-    if (it._wallNx !== undefined) {
-      return {
-        nx: it._wallNx, nz: it._wallNy,
-        wx: (it._wallX || cx) + offset * Math.abs(it._wallNy || 0),
-        wz: (it._wallY || cz) + offset * Math.abs(it._wallNx || 0),
-      };
-    }
-    // Fallback: compute from nearestWall at runtime
+    // Free mode: compute from polygon at runtime
     const pts = state.poly;
     if (pts && pts.length > 2) {
       const cx0 = pts.reduce((s,p) => s+p.x, 0) / pts.length;
@@ -493,7 +492,14 @@ const scene3d = (() => {
   function buildSkilt3D(it) {
     if (!it.def) return;
     const sz = it.size || 0.6;
-    const mountH = it.wallH !== undefined ? it.wallH : 2.0;
+    let mountH = it.wallH;
+    if (mountH === undefined) {
+      // Fallback: compute from linked container height
+      const linked = it._linkedTo !== undefined
+        ? state.items.find(c => c.kind === 'container' && c.id === it._linkedTo)
+        : null;
+      mountH = linked ? linked.def.H / 1000 + 0.3 : 1.5;
+    }
     const wi = getSkiltWallInfo(it);
 
     const key = it.typeId;
@@ -573,6 +579,18 @@ const scene3d = (() => {
             }
           });
         }
+        if (def.id === 'BALEX' || def.id === 'BALEX10') {
+          const bluemat = new THREE.MeshStandardMaterial({
+            color: 0x1a6bc4,
+            roughness: 0.5,
+            metalness: 0.15,
+            emissive: new THREE.Color(0x0d3d75),
+            emissiveIntensity: 0.35,
+          });
+          model.traverse(child => {
+            if (child.isMesh) child.material = bluemat;
+          });
+        }
         // Center model at origin, bottom at y=0, then wrap for positioning/rotation
         model.position.set(0, 0, 0);
         model.updateMatrixWorld(true);
@@ -584,6 +602,7 @@ const scene3d = (() => {
         wrapper.add(model);
         wrapper.position.set(cx, 0, cz);
         wrapper.rotation.y = Math.PI - rot;
+        setShadow(wrapper, false, false);
         addMesh(wrapper);
       });
       return;
@@ -728,6 +747,7 @@ const scene3d = (() => {
 
     group.position.set(cx, 0, cz);
     group.rotation.y = -rot;
+    setShadow(group, false, false);
     addMesh(group);
   }
 
@@ -824,6 +844,7 @@ const scene3d = (() => {
 
     group.position.set(cx, 0, cz);
     group.rotation.y = -rot;
+    setShadow(group, false, false);
     addMesh(group);
   }
 

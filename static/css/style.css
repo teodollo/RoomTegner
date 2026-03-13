@@ -153,6 +153,17 @@ header { display: flex; align-items: center; gap: 10px; padding: 0 16px; height:
 .modal .ig { margin-bottom: 10px; }
 .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
+/* In-app dialog */
+.modal-dialog { width: 320px; text-align: center; padding: 28px 24px 20px; }
+.dialog-icon { font-size: 30px; margin-bottom: 10px; line-height: 1; }
+.dialog-msg { font-size: 14px; color: var(--dark); margin: 0 0 4px; white-space: pre-line; line-height: 1.55; }
+.modal-dialog .modal-footer { justify-content: center; margin-top: 22px; gap: 10px; }
+.modal-dialog .btn-gh, #dialogOk { min-width: 100px; }
+.dialog-input { width: 100%; margin-top: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; font-family: inherit; outline: none; box-sizing: border-box; }
+.dialog-input:focus { border-color: var(--ng); }
+#dialogOk.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
+#dialogOk.danger:hover { background: #a93226; }
+
 /* Toast */
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: #fff; padding: 8px 18px; border-radius: 8px; font-size: 12px; font-weight: 500; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }

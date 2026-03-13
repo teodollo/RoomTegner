@@ -7,17 +7,6 @@ function render2D() {
   ctx.clearRect(0, 0, W, H);
   const { ox, oy } = getO();
 
-  // ── Floor drop shadow ───────────────────────────────────────────────
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.18)';
-  ctx.shadowBlur = 18;
-  ctx.shadowOffsetX = 3;
-  ctx.shadowOffsetY = 4;
-  floorPath(ctx);
-  ctx.fillStyle = '#ede9e2';
-  ctx.fill();
-  ctx.restore();
-
   // ── Floor fill ──────────────────────────────────────────────────────
   floorPath(ctx);
   ctx.fillStyle = '#f5f2ec';
@@ -217,7 +206,7 @@ function render2D() {
       if (it.def.type === 'cage') drawCage2D(ctx, bw, bd, isSel, false);
       else if (it.def.type === 'rollcage') drawCage2D(ctx, bw, bd, isSel, true);
       else if (it.def.type === 'compactor') drawCompactor2D(ctx, bw, bd, isSel, it.def);
-      else drawBin2D(ctx, bw, bd, isSel, it.def, it.fraksjon);
+      else drawBin2D(ctx, bw, bd, isSel, it.def, it.fraksjon, it.rot);
       // Pending skilt hover highlight
       if (state.pendingSkilt && state._skiltHoverId === it.id) {
         ctx.strokeStyle = '#00cc66'; ctx.lineWidth = 3; ctx.setLineDash([5, 3]);
@@ -369,19 +358,13 @@ function drawDim(ctx, x1, y1, x2, y2, lbl, vert = false) {
   drawDimLine(ctx, x1, y1, x2, y2, lbl);
 }
 
-function drawBin2D(ctx, bw, bd, isSel, def, fraksjon) {
+function drawBin2D(ctx, bw, bd, isSel, def, fraksjon, rot) {
   const fr = getFraksjon(fraksjon || 'rest');
   const r = Math.max(3, bw * 0.07);
-
-  // Shadow
-  ctx.shadowColor = 'rgba(0,0,0,.18)';
-  ctx.shadowBlur = isSel ? 16 : 7;
-  ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 3;
 
   // Body — fraction color
   ctx.fillStyle = fr.color;
   ctx.beginPath(); ctx.roundRect(-bw/2, -bd/2, bw, bd, r); ctx.fill();
-  ctx.shadowColor = 'transparent';
 
   // Lid strip — darker shade of fraction color
   const lidH = bd * 0.20;
@@ -401,30 +384,25 @@ function drawBin2D(ctx, bw, bd, isSel, def, fraksjon) {
   ctx.fillStyle = grad;
   ctx.beginPath(); ctx.roundRect(-bw/2, -bd/2 + lidH, bw, bd - lidH, [0, 0, r, r]); ctx.fill();
 
-  // NG badge
-  const bW = Math.min(bw * 0.50, 36), bH = Math.min(bd * 0.13, 11);
-  const bY = -bd/2 + lidH + (bd - lidH) * 0.15;
-  ctx.fillStyle = NG_ORANGE;
-  ctx.beginPath(); ctx.roundRect(-bW/2, bY, bW, bH, 3); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.max(6, Math.min(9, bW/3.5))}px Inter,sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('NG', 0, bY + bH/2);
+  // Text — always horizontal regardless of container rotation
+  ctx.save();
+  ctx.rotate(-(rot || 0));
+  const minDim = Math.min(bw, bd);
 
-  // Fraction label — most important info
-  const frFs = Math.max(8, Math.min(12, bw / 6.5));
-  ctx.fillStyle = 'rgba(255,255,255,0.90)';
+  // Fraction label (primary — large, white, bold)
+  const frFs = Math.max(9, Math.min(14, minDim / 5));
+  const frLabel = fr.label.length > 12 ? fr.label.slice(0, 11) + '…' : fr.label;
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.font = `bold ${frFs}px Inter,sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  // Truncate if needed
-  const frLabel = fr.label.length > 14 ? fr.label.slice(0, 13) + '…' : fr.label;
-  ctx.fillText(frLabel, 0, bY + bH + frFs * 1.4);
+  ctx.fillText(frLabel, 0, -frFs * 0.55);
 
-  // Size label (smaller, below fraction)
-  const szFs = Math.max(5, Math.min(7, bw/11));
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  // Container type (secondary — smaller, semi-transparent)
+  const szFs = Math.max(7, Math.min(10, minDim / 7));
+  ctx.fillStyle = 'rgba(255,255,255,0.60)';
   ctx.font = `${szFs}px Inter,sans-serif`;
-  ctx.fillText(def.name, 0, bY + bH + frFs * 1.4 + frFs + 2);
+  ctx.fillText(def.name, 0, frFs * 0.85);
+  ctx.restore();
 
   // Wheels
   const wr = Math.max(2.5, Math.min(5, bw/14));
@@ -457,13 +435,9 @@ function drawBin2D(ctx, bw, bd, isSel, def, fraksjon) {
 }
 
 function drawCage2D(ctx, bw, bd, isSel, isRoll) {
-  // Shadow
-  ctx.shadowColor = 'rgba(0,0,0,.12)'; ctx.shadowBlur = isSel ? 12 : 4; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-
   // Floor/base plate
   ctx.fillStyle = '#c8c4be';
   ctx.beginPath(); ctx.rect(-bw/2, -bd/2, bw, bd); ctx.fill();
-  ctx.shadowColor = 'transparent';
 
   // Interior lighter
   ctx.fillStyle = '#dedad4';
@@ -530,8 +504,6 @@ function drawCage2D(ctx, bw, bd, isSel, isRoll) {
 
 function drawWallEl2D(ctx, bw, bd, isSel, it) {
   const def = it.def;
-  ctx.shadowColor = 'rgba(0,0,0,.08)'; ctx.shadowBlur = isSel ? 8 : 3; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
-
   if (def.type === 'door') {
     const swing = Math.min(bw, (def.swingR / 1000) * getPPM());
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.rect(-bw / 2, -bd / 2, bw, bd); ctx.fill();
@@ -561,16 +533,12 @@ function drawWallEl2D(ctx, bw, bd, isSel, it) {
 }
 
 function drawCompactor2D(ctx, bw, bd, isSel, def) {
-  ctx.shadowColor = 'rgba(0,0,0,.15)'; ctx.shadowBlur = isSel ? 12 : 5;
-  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-
-  // Body — steel grey
-  ctx.fillStyle = '#707880';
+  // Body — blue
+  ctx.fillStyle = '#2575c4';
   ctx.beginPath(); ctx.rect(-bw/2, -bd/2, bw, bd); ctx.fill();
-  ctx.shadowColor = 'transparent';
 
-  // Front panel (darker)
-  ctx.fillStyle = '#555d64';
+  // Front panel (darker blue-black)
+  ctx.fillStyle = '#1a1a2a';
   ctx.beginPath(); ctx.rect(-bw/2, -bd/2, bw, bd * 0.35); ctx.fill();
 
   // Compactor opening slot
@@ -601,8 +569,8 @@ function drawCompactor2D(ctx, bw, bd, isSel, def) {
   ctx.fillText('BALEX', 0, bY + bH + 10);
 
   // Outline
-  ctx.strokeStyle = isSel ? '#E8521A' : 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = isSel ? 2.5 : 1;
+  ctx.strokeStyle = isSel ? '#E8521A' : 'rgba(0,0,0,0.30)';
+  ctx.lineWidth = isSel ? 2.5 : 1.5;
   ctx.beginPath(); ctx.rect(-bw/2, -bd/2, bw, bd); ctx.stroke();
 
   if (isSel) {

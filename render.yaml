@@ -7,7 +7,9 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      - key: DB_PATH
+        value: /opt/render/project/data/sketches.db
     disk:
       name: data
-      mountPath: /opt/render/project/src
+      mountPath: /opt/render/project/data
       sizeGB: 1

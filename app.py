@@ -38,9 +38,12 @@ def require_api_key(request: Request):
     if not API_KEY or key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-DB = "sketches.db"
+DB = os.environ.get("DB_PATH", "sketches.db")
 
 def init_db():
+    db_dir = os.path.dirname(DB)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     con = sqlite3.connect(DB)
     con.execute("""
         CREATE TABLE IF NOT EXISTS sketches (

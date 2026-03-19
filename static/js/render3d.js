@@ -1,8 +1,14 @@
 const scene3d = (() => {
-  let renderer, scene, camera, controls;
+  let renderer, scene, camera;
   let meshes = [];
   let initialized = false;
-  let currentAngle = 'iso-ne';
+  let currentAngle; // tracks last preset angle; unused for now but kept for future setAngle calls
+
+  // Single source of truth for 3D wall thickness (metres).
+  // Walls are shifted outward by WALL_THICK/2 so their inner faces align exactly
+  // with the room boundary coordinates (0→W, 0→D) used by the 2D snap system.
+  // Changing this value automatically propagates to all wall geometry and comments.
+  const WALL_THICK = 0.12;
 
   // GLB model cache: typeId → THREE.Group (cloned per instance)
   const glbCache = {};
@@ -143,10 +149,27 @@ const scene3d = (() => {
     camera.lookAt(orbit.target);
   }
 
+  // Computes orbit center and radius from the current room shape.
+  // Uses polygon centroid/bounds for free mode, rect dimensions for rect mode.
+  // Called once on init() and also by setAngle() for camera presets.
+  function getRoomOrbitParams() {
+    const H = state.roomH;
+    if (state.roomMode === 'free' && state.poly && state.poly.length > 0) {
+      const poly = state.poly;
+      const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length;
+      const cz = poly.reduce((s, p) => s + p.y, 0) / poly.length;
+      const xs = poly.map(p => p.x), zs = poly.map(p => p.y);
+      const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+      return { cx, cz: cz, radius: span * 2.2, H };
+    }
+    const rW = state.roomW, rD = state.roomD;
+    return { cx: rW / 2, cz: rD / 2, radius: Math.max(rW, rD) * 2.2, H };
+  }
+
   function resetOrbit() {
-    const rW = state.roomW, rD = state.roomD, rH = state.roomH;
-    orbit.target.set(rW/2, rH*0.35, rD/2);
-    orbit.radius = Math.max(rW, rD) * 2.2;
+    const { cx, cz, radius, H } = getRoomOrbitParams();
+    orbit.target.set(cx, H * 0.35, cz);
+    orbit.radius = radius;
     orbit.theta = Math.PI * 0.35;
     orbit.phi = Math.PI * 0.3;
     updateOrbitCamera();
@@ -158,7 +181,7 @@ const scene3d = (() => {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xb0b8bf);
-    scene.fog = new THREE.Fog(0xb0b8bf, 18, 60);
+    // scene.fog = new THREE.Fog(0xb0b8bf, 18, 60);
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -174,7 +197,7 @@ const scene3d = (() => {
     initOrbit();
 
     // Lights — industrial overhead feel
-    const ambient = new THREE.AmbientLight(0xc8d4de, 0.55);
+    const ambient = new THREE.AmbientLight(0xc8d4de, 0.75);
     scene.add(ambient);
     const sun = new THREE.DirectionalLight(0xfff6d8, 1.2);
     sun.position.set(8, 16, 10);
@@ -189,7 +212,7 @@ const scene3d = (() => {
     sun.shadow.camera.bottom = -16;
     sun.shadow.bias = -0.001;
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.3);
+    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.5);
     fill.position.set(-8, 6, -8);
     scene.add(fill);
 
@@ -210,9 +233,9 @@ const scene3d = (() => {
   function setAngle(a) {
     currentAngle = a;
     if (!camera) return;
-    const rW = state.roomW, rD = state.roomD, rH = state.roomH;
-    orbit.target.set(rW/2, rH*0.35, rD/2);
-    orbit.radius = Math.max(rW, rD) * 2.2;
+    const { cx, cz, radius, H } = getRoomOrbitParams();
+    orbit.target.set(cx, H * 0.35, cz);
+    orbit.radius = radius;
     const angles = {
       'iso-ne': [Math.PI*0.35, Math.PI*0.30],
       'iso-nw': [-Math.PI*0.35, Math.PI*0.30],
@@ -267,19 +290,18 @@ const scene3d = (() => {
 
   function buildRoom() {
     const H = state.roomH;
-    const thick = 0.12;
     const wallMat = new THREE.MeshLambertMaterial({ color: 0xc8c4be, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x706c66 });
 
     if (state.roomMode === 'rect') {
       const W = state.roomW, D = state.roomD;
 
-      // Floor — concrete
+      // Floor — concrete. Sits just below y=0 so containers rest on y=0.
       const floorMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(W, thick, D),
+        new THREE.BoxGeometry(W, WALL_THICK, D),
         new THREE.MeshLambertMaterial({ color: 0x6e6b67 })
       );
-      floorMesh.position.set(W/2, -thick/2, D/2);
+      floorMesh.position.set(W/2, -WALL_THICK/2, D/2);
       floorMesh.receiveShadow = true;
       addMesh(floorMesh);
 
@@ -291,22 +313,22 @@ const scene3d = (() => {
       gg.setAttribute('position', new THREE.Float32BufferAttribute(gpts, 3));
       addMesh(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x4a4845 })));
 
-      // 4 walls
-      [[W,H,thick,W/2,H/2,0],[thick,H,D,0,H/2,D/2],[thick,H,D,W,H/2,D/2],[W,H,thick,W/2,H/2,D]]
-        .forEach(([w,h,d,px,py,pz]) => {
+      // 4 walls — each shifted outward by WALL_THICK/2 so the inner face aligns
+      // exactly with the room boundary (0→W, 0→D). This matches the 2D snap system
+      // which places container edges at those boundary coordinates.
+      const half = WALL_THICK / 2;
+      [
+        [W,          H, WALL_THICK, W/2,       H/2, -half   ], // north: inner face at z=0
+        [WALL_THICK, H, D,          -half,      H/2, D/2     ], // west:  inner face at x=0
+        [WALL_THICK, H, D,          W + half,   H/2, D/2     ], // east:  inner face at x=W
+        [W,          H, WALL_THICK, W/2,        H/2, D + half], // south: inner face at z=D
+      ].forEach(([w,h,d,px,py,pz]) => {
           const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), wallMat.clone());
           m.position.set(px,py,pz);
           m.receiveShadow = true;
           addMesh(m);
         });
 
-      // Ceiling — semi-opaque industrial panel
-      const ceilMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(W, 0.06, D),
-        new THREE.MeshLambertMaterial({ color: 0x9a9690, transparent: true, opacity: 0.45 })
-      );
-      ceilMesh.position.set(W/2, H + 0.03, D/2);
-      addMesh(ceilMesh);
 
       // Edge lines
       [[[0,0,0],[W,0,0],[W,H,0],[0,H,0],[0,0,0]],
@@ -341,14 +363,30 @@ const scene3d = (() => {
       floorMesh.receiveShadow = true;
       addMesh(floorMesh);
 
-      // Walls — one per edge
+      // Walls — one per polygon edge, shifted outward by WALL_THICK/2 so inner
+      // faces align with the polygon boundary (same coords as the 2D snap system).
+      // Outward normal uses the same shoelace winding logic as nearestWall() in app.js.
+      const shoelace = poly.reduce((sum, p, i) => {
+        const q = poly[(i + 1) % poly.length];
+        return sum + p.x * q.y - q.x * p.y;
+      }, 0);
+      const windSign = shoelace > 0 ? 1 : -1;
+
       for (let i = 0; i < poly.length; i++) {
         const a = poly[i], b = poly[(i+1) % poly.length];
         const dx = b.x - a.x, dz = b.y - a.y;
         const len = Math.sqrt(dx*dx + dz*dz);
-        const wallGeo = new THREE.BoxGeometry(len, H, thick);
+        // Outward normal in 3D (canvas x→x, canvas y→z).
+        // Inward normal = (windSign*-dz/len, windSign*dx/len); outward = negated.
+        const outNx = windSign * dz / len;
+        const outNz = -windSign * dx / len;
+        const wallGeo = new THREE.BoxGeometry(len, H, WALL_THICK);
         const wall = new THREE.Mesh(wallGeo, wallMat.clone());
-        wall.position.set((a.x+b.x)/2, H/2, (a.y+b.y)/2);
+        wall.position.set(
+          (a.x + b.x) / 2 + outNx * WALL_THICK / 2,
+          H / 2,
+          (a.y + b.y) / 2 + outNz * WALL_THICK / 2
+        );
         wall.rotation.y = -Math.atan2(dz, dx);
         addMesh(wall);
 
@@ -360,14 +398,9 @@ const scene3d = (() => {
         addMesh(new THREE.Line(eg, edgeMat));
       }
 
-      // Update orbit target to polygon centroid
-      const cx = poly.reduce((s,p)=>s+p.x,0)/poly.length;
-      const cz = poly.reduce((s,p)=>s+p.y,0)/poly.length;
-      const xs = poly.map(p=>p.x), zs = poly.map(p=>p.y);
-      const span = Math.max(Math.max(...xs)-Math.min(...xs), Math.max(...zs)-Math.min(...zs));
-      orbit.target.set(cx, H*0.35, cz);
-      orbit.radius = span * 2.2;
-      updateOrbitCamera();
+      // Orbit is initialized in resetOrbit() / setAngle() — not here.
+      // Modifying orbit inside buildRoom() resets the camera on every rebuild
+      // (e.g. nudgeSkilt), which would undo any user camera positioning.
     }
   }
 
@@ -451,6 +484,10 @@ const scene3d = (() => {
     return tex;
   }
 
+  /**
+   * Legacy fallback — only called for sketches saved before wall info was stored.
+   * Prefer using _wallNx/_wallNy/_wallX/_wallY stored on the item at placement time.
+   */
   function getSkiltWallInfo(it) {
     const cx = it.x, cz = it.y;
     const offset = it.wallOffset || 0;
@@ -468,8 +505,16 @@ const scene3d = (() => {
     // Free mode: compute from polygon at runtime
     const pts = state.poly;
     if (pts && pts.length > 2) {
-      const cx0 = pts.reduce((s,p) => s+p.x, 0) / pts.length;
-      const cy0 = pts.reduce((s,p) => s+p.y, 0) / pts.length;
+      // Use winding order to determine inward normals — avoids centroid-based flipping
+      // which fails for concave rooms (L/U/T-shapes) where the centroid can fall outside
+      // the polygon. For a CW polygon on a Y-down canvas (shoelace > 0), the default
+      // left-perpendicular (-ey, ex) already points INWARD, so sign = +1. For CCW
+      // (shoelace < 0) it points outward, so we flip with sign = -1.
+      const shoelace = pts.reduce((sum, p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        return sum + p.x * q.y - q.x * p.y;
+      }, 0);
+      const sign = shoelace > 0 ? 1 : -1;
       let best = null;
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i+1)%pts.length];
@@ -479,9 +524,7 @@ const scene3d = (() => {
         const wx = a.x+t*ex, wy = a.y+t*ey;
         const dist = Math.hypot(cx-wx, cz-wy);
         const len = Math.sqrt(len2);
-        let nx = -ey/len, ny = ex/len;
-        // Flip inward — use wall point not segment midpoint
-        if ((cx0-wx)*nx+(cy0-wy)*ny < 0) { nx=-nx; ny=-ny; }
+        const nx = sign * (-ey/len), ny = sign * (ex/len);
         if (!best || dist < best.dist) best = { dist, wx, wy, nx, ny };
       }
       if (best) return { nx: best.nx, nz: best.ny, wx: best.wx + offset * Math.abs(best.ny), wz: best.wy + offset * Math.abs(best.nx) };
@@ -491,16 +534,25 @@ const scene3d = (() => {
 
   function buildSkilt3D(it) {
     if (!it.def) return;
-    const sz = it.size || 0.6;
+    const sz = it.size || 0.65;
     let mountH = it.wallH;
     if (mountH === undefined) {
       // Fallback: compute from linked container height
       const linked = it._linkedTo !== undefined
         ? state.items.find(c => c.kind === 'container' && c.id === it._linkedTo)
         : null;
-      mountH = linked ? linked.def.H / 1000 + 0.3 : 1.5;
+      mountH = linked ? linked.def.H / 1000 + 0.4 : 1.6;
     }
-    const wi = getSkiltWallInfo(it);
+    // Prefer wall info stored at placement time over live recomputation.
+    // _wallNy (canvas Y, down) maps to Three.js Z — stored as nz here.
+    // Recomputing via getSkiltWallInfo() can disagree with placement-time values
+    // if the container was later moved or the polygon edited.
+    let wi;
+    if (it._wallNx !== undefined) {
+      wi = { nx: it._wallNx, nz: it._wallNy, wx: it._wallX, wz: it._wallY };
+    } else {
+      wi = getSkiltWallInfo(it); // legacy fallback
+    }
 
     const key = it.typeId;
     if (!_skilt3dTexCache[key]) {
@@ -508,29 +560,33 @@ const scene3d = (() => {
     }
     const texture = _skilt3dTexCache[key];
 
-    // White backing panel
-    const backGeo = new THREE.PlaneGeometry(sz + 0.04, sz + 0.04);
-    const backMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.FrontSide });
-    const back = new THREE.Mesh(backGeo, backMat);
-    back.position.z = -0.003;
+    // White frame box — gives the sign physical depth (visible from the sides when
+    // orbiting) and provides the white border around the icon. The box front face
+    // is at z=+0.02; the texture plane sits 2mm in front of it so the frame border
+    // shows uniformly on all sides regardless of icon background colour.
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(sz + 0.04, sz + 0.04, 0.04),
+      new THREE.MeshLambertMaterial({ color: 0xffffff })
+    );
 
-    // Sign face
-    const geo = new THREE.PlaneGeometry(sz, sz);
-    const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide });
-    const mesh = new THREE.Mesh(geo, mat);
+    // Sign icon/texture — floats 2mm in front of frame face to avoid z-fighting
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(sz, sz),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide })
+    );
+    face.position.z = 0.022;
 
     const group = new THREE.Group();
-    group.add(back);
-    group.add(mesh);
+    group.add(frame);
+    group.add(face);
 
-    // Place sign ON the inner wall surface (wall thickness = 0.12, inner face at 0.06 from center)
-    const wallThick = 0.08;
+    // Place sign on inner wall surface.
+    // Offset = WALL_THICK/2 (0.06m) + frame half-depth (0.02m) + 0.005m clearance = 0.085m.
+    // Not using WALL_THICK directly here because the skilt floats in front of the
+    // wall surface, not at it — the frame depth and clearance are intentional additions.
+    const wallThick = WALL_THICK / 2 + 0.02 + 0.005; // = 0.085m
     const posX = wi.wx + wi.nx * wallThick;
     const posZ = wi.wz + wi.nz * wallThick;
-    console.log('skilt:', it.typeId, 'container:', it.x.toFixed(2), it.y.toFixed(2),
-      '→ wall:', wi.wx?.toFixed(2), wi.wz?.toFixed(2),
-      'normal:', wi.nx?.toFixed(2), wi.nz?.toFixed(2),
-      'pos:', posX.toFixed(2), posZ.toFixed(2), 'h:', mountH.toFixed(2));
     group.position.set(posX, mountH, posZ);
     group.lookAt(posX + wi.nx, mountH, posZ + wi.nz);
 
@@ -545,7 +601,7 @@ const scene3d = (() => {
     const rot = it.rot || 0;
 
     if (def.type === 'cage' || def.type === 'rollcage') {
-      buildCage3D(it, W, D, H, cx, cz, rot, def.type === 'rollcage');
+      buildCage3D(W, D, H, cx, cz, rot);
       return;
     }
 
@@ -568,7 +624,22 @@ const scene3d = (() => {
         if (!model) {
           buildContainerFallback(it); return;
         }
+
+        // Replace GLB PBR materials with MeshPhongMaterial.
+        // GLB models use MeshStandardMaterial (PBR) which requires an environment
+        // map to render correctly — without one, high-metalness surfaces appear black.
+        // MeshPhongMaterial gives correct shading with the scene's directional lights.
+        model.traverse(child => {
+          if (!child.isMesh) return;
+          child.material = new THREE.MeshPhongMaterial({
+            color: 0x23272B,  // dark anthracite — matches NG container
+            shininess: 5,     // near-matte plastic, no silver sheen
+            specular: 0x050505,
+          });
+        });
+
         if (def.type.includes('glass')) {
+          // Override lid parts with glass blue regardless of fraksjon
           model.traverse(child => {
             if (child.isMesh) {
               const b = new THREE.Box3().setFromObject(child);
@@ -613,8 +684,9 @@ const scene3d = (() => {
     const group    = new THREE.Group();
 
     const NG_ORANGE = 0xe8521a;
-    const BODY_COL  = 0x282828;
-    const LID_COL   = isGlass ? 0x1a55aa : 0x1c1c1c;
+    // All containers use the same body color in 3D regardless of fraksjon.
+    const BODY_COL  = 0x23272B;
+    const LID_COL   = isGlass ? 0x1a55aa : 0x23272B;
     const m = (c, s=40) => new THREE.MeshPhongMaterial({ color:c, shininess:s, specular:0x222222 });
 
     // ── Dimensions ───────────────────────────────────────────────────
@@ -693,7 +765,7 @@ const scene3d = (() => {
         [-W/2+0.08, -D/2+0.08], [ W/2-0.08, -D/2+0.08],
         [-W/2+0.08,  D/2-0.08], [ W/2-0.08,  D/2-0.08],
       ];
-      positions.forEach(([wx, wz], i) => {
+      positions.forEach(([wx, wz]) => {
         const wg = new THREE.Group();
         // Castor housing
         const fork = new THREE.Mesh(new THREE.BoxGeometry(wt*1.1, wr*0.7, wr*0.5), m(GOLD, 70));
@@ -754,7 +826,7 @@ const scene3d = (() => {
   // Alias so GLB path can fall back to hand-coded version
   function buildContainerFallback(it) { buildContainer(it, true); }
 
-  function buildCage3D(it, W, D, H, cx, cz, rot, isRoll) {
+  function buildCage3D(W, D, H, cx, cz, rot) {
     const group = new THREE.Group();
     const barR = 0.015; // bar radius
     const barMat = new THREE.MeshLambertMaterial({ color: 0x888888 });

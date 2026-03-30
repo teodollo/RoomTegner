@@ -274,21 +274,23 @@ const scene3d = (() => {
 
   // Synchronous rebuild — bypasses the _dirty flag and animation-loop delay.
   // Used by PDF export so the scene is guaranteed current before captureTopDown() runs.
-  // GLBs not yet loaded will fall back to box geometry (same as the normal async path).
+  // Forces skipGLB=true for ALL containers so every container uses the same BoxGeometry
+  // path — avoids mixed GLB/fallback rendering when some GLBs are cached and others aren't,
+  // which would make identical container types look different sizes in the PDF.
   function rebuildSync() {
     if (!initialized) return;
-    _doRebuild();
+    _doRebuild(true);
     _dirty = false;
   }
 
-  function _doRebuild() {
+  function _doRebuild(forceSkipGLB = false) {
     meshes.forEach(m => scene.remove(m));
     meshes = [];
     _skiltMeshMap = [];
 
     buildRoom();
     state.items.forEach(it => {
-      if (it.kind === 'container') buildContainer(it);
+      if (it.kind === 'container') buildContainer(it, forceSkipGLB);
       else if (it.kind === 'wall') buildWallEl(it);
       else if (it.kind === 'skilt') buildSkilt3D(it);
     });
@@ -488,6 +490,22 @@ const scene3d = (() => {
       // Modifying orbit inside buildRoom() resets the camera on every rebuild
       // (e.g. nudgeSkilt), which would undo any user camera positioning.
     }
+
+    // Inner partition walls — drawn by the user with the 'innerwall' tool.
+    // Runs after both rect and free blocks so it works in either room mode.
+    // Stored as absolute room coords (x1,y1)→(x2,y2) in metres (canvas XY → Three XZ).
+    // Same thickness as outer walls so junctions look consistent.
+    state.items.filter(i => i.kind === 'innerwall').forEach(iw => {
+      const ax = iw.x1, az = iw.y1, bx = iw.x2, bz = iw.y2;
+      const dx = bx - ax, dz = bz - az;
+      const len = Math.sqrt(dx*dx + dz*dz);
+      if (len < 0.01) return;
+      const geo = new THREE.BoxGeometry(len, H, WALL_THICK);
+      const wall = new THREE.Mesh(geo, wallMat.clone());
+      wall.position.set((ax + bx) / 2, H / 2, (az + bz) / 2);
+      wall.rotation.y = -Math.atan2(dz, dx);
+      addMesh(wall);
+    });
   }
 
   // ── Skilt (sorteringsmerke) ───────────────────────────────────────────

@@ -95,6 +95,7 @@
 
       <!-- CONTAINERS TAB — L-bins only -->
       <div id="tab-containers" style="display:none">
+        <div id="fraksjon-picker"></div>
         <div class="cl" id="clist"></div>
       </div>
 
@@ -150,7 +151,7 @@
   <div class="room-tab-bar" id="room-tabs"></div>
   <div class="cw" id="cw">
     <div class="bg-grid" id="bgGrid"></div>
-    <canvas id="canvas-2d"></canvas>
+    <canvas id="canvas-2d" oncontextmenu="return false"></canvas>
     <div id="canvas-3d"></div>
 
     <!-- Skilt 3D position overlay — shown only in 3D when a skilt is selected -->
@@ -171,6 +172,8 @@
       <div class="ct-sep"></div>
       <button class="ct" onclick="rot90()">90°</button>
       <button class="ct" onclick="delSel()" style="color:#cc2222"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Slett</button>
+      <div class="ct-sep"></div>
+      <button class="ct" id="tinnerwall" onclick="setTool('innerwall')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg> Innervegg</button>
     </div>
 
     <div class="ib" id="ib">Velg <b>Beholdere</b> i sidepanelet og klikk <b>+</b> for å plassere</div>

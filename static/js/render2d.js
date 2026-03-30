@@ -224,9 +224,122 @@ function render2D() {
       drawExit2D(ctx, isSel);
     } else if (it.kind === 'skilt') {
       // Skilt vises kun i 3D — ingen markering i 2D
+    } else if (it.kind === 'innerwall') {
+      // Drawn in a separate raw-canvas pass below (has two endpoints, not center+rot)
     }
     ctx.restore();
   });
+
+  // ── Inner partition walls ─────────────────────────────────────────────
+  // These store absolute room coords (x1,y1)→(x2,y2), not a center+rotation,
+  // so they are drawn directly in canvas space outside the translate/rotate loop.
+  // ppm is re-fetched here because the variable above is block-scoped inside
+  // the roomMode === 'free' grid block and is not visible at this level.
+  {
+    const ppm = getPPM();
+    const INNER_WALL_M = 0.12; // match render3d.js WALL_THICK
+    const wallPx = Math.max(6, INNER_WALL_M * ppm);
+
+    state.items.filter(i => i.kind === 'innerwall').forEach(iw => {
+      const x1c = ox + iw.x1 * ppm, y1c = oy + iw.y1 * ppm;
+      const x2c = ox + iw.x2 * ppm, y2c = oy + iw.y2 * ppm;
+      const isSel = iw.id === state.sel;
+      ctx.save();
+      // 'square' cap extends each end by half the lineWidth, filling the gap where
+      // walls meet at T- and L-junctions without needing per-corner extra geometry.
+      ctx.lineCap = 'square';
+      // Two-pass draw matching outer wall style: dark border first, gray fill on top
+      ctx.strokeStyle = '#1c1a18';
+      ctx.lineWidth = wallPx + 6;
+      ctx.beginPath(); ctx.moveTo(x1c, y1c); ctx.lineTo(x2c, y2c); ctx.stroke();
+      ctx.strokeStyle = isSel ? '#4a9eff' : '#b8b4ac';
+      ctx.lineWidth = wallPx;
+      ctx.beginPath(); ctx.moveTo(x1c, y1c); ctx.lineTo(x2c, y2c); ctx.stroke();
+      ctx.restore();
+    });
+
+    // Corner cap squares at every inner wall endpoint — fills the remaining gap at
+    // T- and L-junctions where two square-capped lines meet at an angle.
+    // Only needed where multiple walls share an endpoint; outer-wall junctions are
+    // naturally covered by the thick outer wall graphic drawn earlier.
+    const epCount = new Map();
+    state.items.filter(i => i.kind === 'innerwall').forEach(iw => {
+      for (const [ex, ey] of [[iw.x1, iw.y1], [iw.x2, iw.y2]]) {
+        const key = `${ex},${ey}`;
+        epCount.set(key, (epCount.get(key) || 0) + 1);
+      }
+    });
+    for (const [key, count] of epCount) {
+      if (count < 2) continue; // single endpoint — outer wall covers it
+      const [ex, ey] = key.split(',').map(Number);
+      const xc = ox + ex * ppm, yc = oy + ey * ppm;
+      ctx.save();
+      const borderHalf = (wallPx + 6) / 2;
+      ctx.fillStyle = '#1c1a18';
+      ctx.fillRect(xc - borderHalf, yc - borderHalf, wallPx + 6, wallPx + 6);
+      const fillHalf = wallPx / 2;
+      ctx.fillStyle = '#b8b4ac';
+      ctx.fillRect(xc - fillHalf, yc - fillHalf, wallPx, wallPx);
+      ctx.restore();
+    }
+
+    // Live preview line from anchor to cursor while drawing
+    if (state.tool === 'innerwall' && state.innerWallStart && state.innerWallHover) {
+      const x1c = ox + state.innerWallStart.x * ppm, y1c = oy + state.innerWallStart.y * ppm;
+      const x2c = ox + state.innerWallHover.x * ppm,  y2c = oy + state.innerWallHover.y * ppm;
+      const len = Math.hypot(state.innerWallHover.x - state.innerWallStart.x,
+                             state.innerWallHover.y - state.innerWallStart.y);
+      ctx.save();
+      ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = wallPx;
+      ctx.lineCap = 'round'; ctx.setLineDash([10, 5]); ctx.globalAlpha = 0.75;
+      ctx.beginPath(); ctx.moveTo(x1c, y1c); ctx.lineTo(x2c, y2c); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      // Length label at midpoint
+      ctx.fillStyle = 'rgba(28,26,24,0.82)';
+      const mx2 = (x1c + x2c) / 2, my2 = (y1c + y2c) / 2;
+      ctx.font = 'bold 12px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const lbl = `${len.toFixed(2)} m`;
+      const tw = ctx.measureText(lbl).width;
+      ctx.fillRect(mx2 - tw/2 - 4, my2 - 9, tw + 8, 18);
+      ctx.fillStyle = '#fff'; ctx.fillText(lbl, mx2, my2);
+      // Snap indicator: green ring at cursor when locked to an existing endpoint/corner
+      if (state.innerWallHover.snapped) {
+        ctx.strokeStyle = '#00cc66'; ctx.lineWidth = 2.5; ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.arc(x2c, y2c, 9, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // Anchor dot — always shown while drawing so the user sees the chain start
+    if (state.tool === 'innerwall' && state.innerWallStart) {
+      ctx.save();
+      ctx.fillStyle = '#4a9eff';
+      ctx.beginPath();
+      ctx.arc(ox + state.innerWallStart.x * ppm, oy + state.innerWallStart.y * ppm, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ── Floating container ghost ──────────────────────────────────────────
+  // Drawn semi-transparent at the snapped mouse position while addContainer()
+  // is in floating-placement mode. Not shown during PDF export.
+  if (state.pendingContainer && state._pendingContainerPos && !state._pdfExporting) {
+    const def = state.pendingContainer.def;
+    const ppm = getPPM();
+    const px = ox + state._pendingContainerPos.x * ppm;
+    const py = oy + state._pendingContainerPos.y * ppm;
+    const bw = (def.W / 1000) * ppm, bd = (def.D / 1000) * ppm;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.translate(px, py);
+    ctx.rotate(state._pendingContainerPos.rot || 0);
+    if (def.type === 'cage')       drawCage2D(ctx, bw, bd, false, false);
+    else if (def.type === 'rollcage')  drawCage2D(ctx, bw, bd, false, true);
+    else if (def.type === 'compactor') drawCompactor2D(ctx, bw, bd, false, def);
+    else if (def.type === 'machine')   drawMachine2D(ctx, bw, bd, false, def);
+    else drawBin2D(ctx, bw, bd, false, def, state.activeFraksjon || 'rest', 0);
+    ctx.restore();
+  }
 
   // ── Stykkliste (live) + Scale bar ────────────────────────────────────
   // Skipped during PDF export: both are re-rendered as proper PDF elements
@@ -700,6 +813,17 @@ function drawSelOverlay(ctx, bw, bd, def) {
 
 function hitTest(it, mx, my) {
   const { ox, oy } = getO();
+  // Inner partition walls: point-to-segment distance test
+  if (it.kind === 'innerwall') {
+    const ppm = getPPM();
+    const x1c = ox + it.x1 * ppm, y1c = oy + it.y1 * ppm;
+    const x2c = ox + it.x2 * ppm, y2c = oy + it.y2 * ppm;
+    const dx = x2c - x1c, dy = y2c - y1c;
+    const lenSq = dx*dx + dy*dy;
+    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((mx - x1c)*dx + (my - y1c)*dy) / lenSq));
+    const dist = Math.hypot(mx - (x1c + t*dx), my - (y1c + t*dy));
+    return dist <= Math.max(10, 0.12 * ppm / 2 + 8); // half-thickness + 8px finger room
+  }
   let hw, hd;
   if (it.kind === 'note' || it.kind === 'exit') { hw = 60; hd = 20; }
   else if (it.kind === 'skilt') { const h = Math.max(30, (it.size || 0.4) * getPPM() / 2); hw = h; hd = h; }

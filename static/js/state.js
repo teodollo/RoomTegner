@@ -17,6 +17,9 @@ const state = {
   customer: '',
   drag: null, dox: 0, doy: 0,
   rotat: null, rsa: 0, rsi: 0,
+  activeFraksjon: 'rest', // persists across adds — user picks once, all new bins inherit it
+  pendingContainer: null,    // { defId, def } while a container is floating under the mouse
+  _pendingContainerPos: null, // { x, y } snapped room coords of the ghost preview
   pendingSkilt: null,
   hoverPoly: null,
   shiftDown: false,
@@ -77,6 +80,7 @@ function toJSON() {
     items: state.items.map(it => ({
       id: it.id, typeId: it.typeId, kind: it.kind,
       x: it.x, y: it.y, rot: it.rot, fraksjon: it.fraksjon || 'rest',
+      x1: it.x1 ?? null, y1: it.y1 ?? null, x2: it.x2 ?? null, y2: it.y2 ?? null,
       text: it.text || null, wallSide: it.wallSide || null,
       size: it.size || null, wallH: it.wallH || null, wallOffset: it.wallOffset || null,
       _linkedTo: it._linkedTo || null,
@@ -98,7 +102,8 @@ function fromJSON(d) {
     else if (it.kind === 'skilt') def = SKILT_DEFS.find(x => x.id === it.typeId);
     return { ...it, def, fraksjon: it.fraksjon || 'rest' };
   });
-  state.nextId = state.items.reduce((m, i) => Math.max(m, i.id + 1), 1);
+  // Skip non-numeric IDs (e.g. legacy 'iw-...' strings) to avoid NaN propagation
+  state.nextId = state.items.reduce((m, i) => typeof i.id === 'number' ? Math.max(m, i.id + 1) : m, 1);
   calcPPM();
 }
 

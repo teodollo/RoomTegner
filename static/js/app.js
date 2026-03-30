@@ -111,7 +111,7 @@ function addSkilt(id) {
 
 function _restoreCursor() {
   const c = document.getElementById('canvas-2d');
-  c.style.cursor = (state.roomMode === 'free' && state.polyDraw && !state.polyDone) ? 'crosshair' : '';
+  c.style.cursor = (state.roomMode === 'free' && state.polyDraw && !state.polyDone) || state.tool === 'innerwall' ? 'crosshair' : '';
 }
 
 function cancelPendingSkilt() {
@@ -144,17 +144,46 @@ function placePendingSkiltOnContainer(container) {
 }
 
 
+// ── Fraksjon picker ───────────────────────────────────────────────────────
+// Renders a compact strip of fraction color buttons above the container list.
+// The active selection persists in state.activeFraksjon so every new bin
+// inherits it without the user re-selecting per add.
+function buildFraksjonPicker() {
+  const el = document.getElementById('fraksjon-picker');
+  if (!el) return;
+  const active = state.activeFraksjon || 'rest';
+  el.innerHTML = `
+    <div class="fraksjon-label">Fraksjon</div>
+    <div class="fraksjon-chips">
+      ${FRAKSJONER.map(f => `
+        <button class="fraksjon-chip${f.id === active ? ' active' : ''}"
+                style="--chip-color:${f.color}"
+                title="${f.label}"
+                onclick="setActiveFraksjon('${f.id}')">
+          <span class="chip-dot" style="background:${f.color}"></span>
+          <span class="chip-label">${f.label}</span>
+        </button>`).join('')}
+    </div>`;
+}
+
+function setActiveFraksjon(id) {
+  state.activeFraksjon = id;
+  buildFraksjonPicker(); // re-render picker to update active highlight
+}
+
 // ── Container list ────────────────────────────────────────────────────────
 function buildContainerList() {
+  buildFraksjonPicker();
   const el = document.getElementById('clist'); el.innerHTML = '';
   // Beholdere tab: L-bins only
   DEFS.filter(d => d.type === 'bin' || d.type === 'bin-large' || d.type === 'bin-xl')
     .forEach(d => {
       const div = document.createElement('div'); div.className = 'ci';
+      div.onclick = () => addContainer(d.id);
       div.innerHTML = `
         <svg class="ci-icon" viewBox="0 0 34 42">${svgIcon(d)}</svg>
         <div class="ci-info"><div class="ci-name">${d.name}</div><div class="ci-dims">${d.W}×${d.D}×${d.H}mm</div></div>
-        <button class="ci-add" onclick="addContainer('${d.id}')">+</button>`;
+        <div class="ci-add">+</div>`;
       el.appendChild(div);
     });
 }
@@ -165,10 +194,11 @@ function buildUtstyrList() {
   DEFS.filter(d => d.type !== 'bin' && d.type !== 'bin-large' && d.type !== 'bin-xl')
     .forEach(d => {
       const div = document.createElement('div'); div.className = 'ci';
+      div.onclick = () => addContainer(d.id);
       div.innerHTML = `
         <svg class="ci-icon" viewBox="0 0 34 42">${svgIcon(d)}</svg>
         <div class="ci-info"><div class="ci-name">${d.name}</div><div class="ci-dims">${d.W}×${d.D}×${d.H}mm</div></div>
-        <button class="ci-add" onclick="addContainer('${d.id}')">+</button>`;
+        <div class="ci-add">+</div>`;
       el.appendChild(div);
     });
 }
@@ -290,18 +320,43 @@ function showCancelBtn(show) {
 // ── Items ──────────────────────────────────────────────────────────────────
 function addContainer(defId) {
   const def = DEFS.find(x => x.id === defId); if (!def) return;
-  const idx = state.items.filter(i => i.kind === 'container').length;
-  const baseCx = state.roomMode === 'rect' ? state.roomW / 2 : centroid('x');
-  const baseCy = state.roomMode === 'rect' ? state.roomD / 2 : centroid('y');
-  // Spread containers in a 5-wide grid so they never stack on the centroid.
-  // Prevents hitTest from picking the wrong container when multiple are unplaced.
-  const col = idx % 5;
-  const row = Math.floor(idx / 5);
-  const cx = baseCx + (col - 2) * 0.65;
-  const cy = baseCy + row * 0.65;
-  const it = { id: state.nextId++, kind: 'container', typeId: defId, def, x: cx, y: cy, rot: 0, fraksjon: 'rest' };
-  state.items.push(it); state.sel = it.id;
-  updateDP(); render();
+  // Enter floating placement mode — container follows the mouse until the user clicks.
+  // Left click = place once and exit; right click = place and keep floating for rapid placement.
+  state.pendingContainer = { defId, def };
+  state._pendingContainerPos = null;
+  document.getElementById('canvas-2d').style.cursor = 'crosshair';
+  setInfo('Venstreklikk = plasser · Høyreklikk = plasser og fortsett · Esc = avbryt');
+  render();
+}
+
+// Places the floating container at the current ghost position.
+// keepActive=true keeps the mode alive for right-click continuous placing.
+function _placePendingContainer(keepActive) {
+  const pc = state.pendingContainer;
+  if (!pc) return;
+  // If the mouse hasn't moved over the canvas yet there is no ghost position.
+  // Exit the mode rather than silently doing nothing (which left users stuck).
+  const pos = state._pendingContainerPos;
+  if (!pos) {
+    if (!keepActive) { state.pendingContainer = null; _restoreCursor(); setInfo(''); }
+    return;
+  }
+  const it = {
+    id: state.nextId++, kind: 'container', typeId: pc.defId, def: pc.def,
+    x: pos.x, y: pos.y, rot: pos.rot || 0, fraksjon: state.activeFraksjon || 'rest'
+  };
+  state.items.push(it);
+  state.sel = it.id;
+  checkAutoSkilt(it);
+  updateDP();
+  if (!keepActive) {
+    state.pendingContainer = null;
+    state._pendingContainerPos = null;
+    _restoreCursor();
+    setInfo('');
+  }
+  render();
+  if (state.view === '3d' && scene3d._initialized) scene3d.rebuild();
 }
 
 function addWallEl(typeId) {
@@ -346,10 +401,13 @@ function rot90() {
 }
 
 function setTool(t) {
+  // Cancel any in-progress inner-wall drawing when switching tools
+  if (t !== 'innerwall') { state.innerWallStart = null; state.innerWallHover = null; }
   state.tool = t;
   document.querySelectorAll('.ct').forEach(b => b.classList.remove('act'));
   const el = document.getElementById('t' + t);
   if (el) el.classList.add('act');
+  _restoreCursor();
 }
 
 function discardAutosave() {
@@ -511,9 +569,93 @@ function resetZoom() {
 
 function c2r(ex, ey) { const { ox, oy } = getO(); const ppm = getPPM(); return { rx: (ex - ox) / ppm, ry: (ey - oy) / ppm }; }
 
+// Snap a raw room-coord point for inner-wall drawing.
+// Priority: 1) existing innerwall endpoints, 2) poly corners, 3) outer wall boundary,
+//           4) auto-ortho from anchor (within ±15°), 5) 0.1m grid.
+// Returns {x, y, snapped} — snapped is truthy when locked to an existing point or wall.
+function snapInnerWallPoint(rx, ry) {
+  const SNAP = 0.3; // metres — snap radius for endpoint/wall attraction
+
+  // 1. Existing innerwall endpoints (allows walls to chain flush)
+  for (const iw of state.items.filter(i => i.kind === 'innerwall')) {
+    for (const [ex, ey] of [[iw.x1, iw.y1], [iw.x2, iw.y2]]) {
+      if (Math.hypot(rx - ex, ry - ey) < SNAP) return { x: ex, y: ey, snapped: true };
+    }
+  }
+
+  // 2. Room polygon corners (attach to room boundary corners)
+  for (const p of (state.poly || [])) {
+    if (Math.hypot(rx - p.x, ry - p.y) < SNAP) return { x: p.x, y: p.y, snapped: true };
+  }
+
+  // 3. Outer wall boundary — snap to nearest point ON the wall segment so walls
+  //    start/end flush with the room boundary even mid-segment.
+  if (state.roomMode === 'rect') {
+    const W = state.roomW, D = state.roomD;
+    const wallSnaps = [
+      { x: rx, y: 0,  dist: Math.abs(ry)     },
+      { x: rx, y: D,  dist: Math.abs(ry - D)  },
+      { x: 0,  y: ry, dist: Math.abs(rx)      },
+      { x: W,  y: ry, dist: Math.abs(rx - W)  },
+    ];
+    const best = wallSnaps.reduce((a, b) => a.dist < b.dist ? a : b);
+    if (best.dist < SNAP) return { x: best.x, y: best.y, snapped: true };
+  } else if (state.poly && state.poly.length > 0) {
+    const pts = state.poly;
+    let bestDist = SNAP, bestX = null, bestY = null;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ex = b.x - a.x, ey = b.y - a.y, len2 = ex*ex + ey*ey;
+      if (len2 < 1e-9) continue;
+      const t = Math.max(0, Math.min(1, ((rx - a.x)*ex + (ry - a.y)*ey) / len2));
+      const wx = a.x + t*ex, wy = a.y + t*ey;
+      const dist = Math.hypot(rx - wx, ry - wy);
+      if (dist < bestDist) { bestDist = dist; bestX = wx; bestY = wy; }
+    }
+    if (bestX !== null) return { x: bestX, y: bestY, snapped: true };
+  }
+
+  // 4. Grid snap then direction lock
+  let gx = Math.round(rx * 10) / 10, gy = Math.round(ry * 10) / 10;
+  if (state.innerWallStart) {
+    const dx = gx - state.innerWallStart.x, dy = gy - state.innerWallStart.y;
+    if (state.shiftDown) {
+      // Shift = hard 90° lock
+      if (Math.abs(dx) >= Math.abs(dy)) gy = state.innerWallStart.y;
+      else gx = state.innerWallStart.x;
+    } else {
+      // Auto-ortho: within ±15° of horizontal or vertical → lock automatically
+      const AUTO_ORTHO = Math.PI / 12;
+      const angle = Math.atan2(Math.abs(dy), Math.abs(dx));
+      if (angle < AUTO_ORTHO) gy = state.innerWallStart.y;
+      else if (angle > Math.PI / 2 - AUTO_ORTHO) gx = state.innerWallStart.x;
+    }
+    gx = Math.round(gx * 10) / 10; gy = Math.round(gy * 10) / 10;
+  }
+  return { x: gx, y: gy, snapped: false };
+}
+
 function onMD(e) {
   if (state.view !== '2d') return;
   const mx = e.offsetX, my = e.offsetY;
+
+  // Floating container placement — left click places+stops, right click places+continues.
+  // Exception: left-clicking an EXISTING item exits placement mode and selects that item,
+  // so the user can naturally "click out" of placement to inspect/edit a placed container.
+  if (state.pendingContainer) {
+    if (e.button === 0) {
+      const existingHit = [...state.items].reverse().find(it => it.kind !== 'skilt' && hitTest(it, mx, my));
+      if (existingHit) {
+        // Exit placement mode and select the clicked item
+        state.pendingContainer = null; state._pendingContainerPos = null;
+        _restoreCursor(); setInfo('');
+        state.sel = existingHit.id; updateDP(); render(); return;
+      }
+      _placePendingContainer(false); return;
+    }
+    if (e.button === 2) { e.preventDefault(); _placePendingContainer(true); return; }
+    return;
+  }
 
   // Pending skilt placement — klikk på beholder for å feste
   if (state.pendingSkilt && e.button === 0) {
@@ -536,6 +678,36 @@ function onMD(e) {
     document.getElementById('canvas-2d').style.cursor = 'grabbing';
     e.preventDefault(); return;
   }
+  // ── Inner wall tool ───────────────────────────────────────────────────
+  // Continuous chain like freehand: each click extends the line from the previous
+  // endpoint. Esc stops drawing. polyDone check skipped for rect rooms.
+  if (state.tool === 'innerwall' && (state.polyDone || state.roomMode === 'rect')) {
+    if (e.button !== 0) return;
+    const { rx, ry } = c2r(mx, my);
+    const pt = snapInnerWallPoint(rx, ry);
+    if (!state.innerWallStart) {
+      // First click: anchor the chain start
+      state.innerWallStart = { x: pt.x, y: pt.y };
+      state.innerWallHover = null;
+      setInfo('Klikk for neste punkt · Shift=90° · Esc=ferdig');
+    } else {
+      const x1 = state.innerWallStart.x, y1 = state.innerWallStart.y;
+      if (Math.hypot(pt.x - x1, pt.y - y1) >= 0.05) {
+        state.items.push({
+          id: state.nextId++, kind: 'innerwall',
+          x1, y1, x2: pt.x, y2: pt.y,
+          x: (x1 + pt.x) / 2, y: (y1 + pt.y) / 2, // midpoint for item loop compat
+          rot: 0
+        });
+        // Chain: next segment starts from where this one ended
+        state.innerWallStart = { x: pt.x, y: pt.y };
+        state.innerWallHover = null;
+        render();
+      }
+    }
+    return;
+  }
+
   if (state.roomMode === 'free' && state.polyDraw && !state.polyDone) {
     const { rx, ry } = c2r(mx, my);
     if (state.poly.length > 2) {
@@ -579,6 +751,9 @@ function onMD(e) {
     if (it.kind === 'skilt') continue; // skilt er usynlig i 2D — ikke blokkér drag
     if (hitTest(it, mx, my)) {
       state.sel = it.id;
+      // Innerwalls have two endpoints, not a center — drag/rotate would corrupt them.
+      // Select only: user can then press Slett/Delete to remove.
+      if (it.kind === 'innerwall') { updateDP(); render(); return; }
       const { ox, oy } = getO();
       if (state.tool === 'rotate') {
         state.rotat = it;
@@ -656,6 +831,30 @@ function onMM(e) {
     state.rotat.rot = state.rsi + (a - state.rsa);
     scheduleRender2D(); // 2D only during rotate — 3D rebuilds on mouseup; updateDP() runs on mouseup
   }
+  // Floating container: track snapped position + auto-rotation for ghost rendering.
+  // Order matters: rotation must be determined BEFORE snap so that the snap offset
+  // uses the rotation-corrected half-extents (depth faces the wall after auto-rotate).
+  // Using unrotated hw/hd for snap would place the container too far from the wall.
+  if (state.pendingContainer) {
+    const { rx, ry } = c2r(mx, my);
+    const def = state.pendingContainer.def;
+    const W2 = def.W / 2000, D2 = def.D / 2000;
+    // Step 1: find nearest wall to determine auto-rotation
+    const w = nearestWall(rx, ry);
+    const rot = (w && w.dist < 0.8) ? Math.atan2(w.nx, -w.ny) : 0;
+    // Step 2: rotation-corrected effective half-extents for the snap offset
+    const cos = Math.abs(Math.cos(rot)), sin = Math.abs(Math.sin(rot));
+    const hw = W2 * cos + D2 * sin;
+    const hd = W2 * sin + D2 * cos;
+    // Step 3: snap position using correct half-extents, then clamp to room in rect mode
+    let pos = snapToWall(rx, ry, hw, hd);
+    if (state.roomMode === 'rect') {
+      pos = { x: Math.max(hw, Math.min(state.roomW - hw, pos.x)),
+              y: Math.max(hd, Math.min(state.roomD - hd, pos.y)) };
+    }
+    state._pendingContainerPos = { x: pos.x, y: pos.y, rot };
+    render(); return;
+  }
   // Pending skilt: highlight hovered container
   if (state.pendingSkilt) {
     const { ox, oy } = getO(); const ppm = getPPM();
@@ -669,6 +868,17 @@ function onMM(e) {
     });
     render(); return;
   }
+  // Inner wall preview: snap and repaint on every mouse move
+  if (state.tool === 'innerwall' && state.innerWallStart) {
+    const { rx, ry } = c2r(mx, my);
+    const pt = snapInnerWallPoint(rx, ry);
+    state.innerWallHover = pt;
+    const len = Math.hypot(pt.x - state.innerWallStart.x, pt.y - state.innerWallStart.y);
+    const hint = pt.snapped ? ' · <b>Snappet</b>' : ' · Shift=90°';
+    setInfo(`<b>${len.toFixed(2)} m</b>${hint} · Klikk for neste punkt · Esc=ferdig`);
+    render2D(); return;
+  }
+
   if (state.roomMode === 'free' && state.polyDraw) {
     const { ox, oy } = getO();
     const ppm = getPPM();
@@ -725,6 +935,14 @@ function onKey(e) {
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel) delSel();
   if (e.key === 'r' || e.key === 'R') rot90();
   if (e.key === 'Escape') {
+    if (state.pendingContainer) {
+      state.pendingContainer = null; state._pendingContainerPos = null;
+      _restoreCursor(); setInfo(''); render(); return;
+    }
+    if (state.tool === 'innerwall' && state.innerWallStart) {
+      state.innerWallStart = null; state.innerWallHover = null;
+      setInfo('Tegning avbrutt'); render(); return;
+    }
     if (state.pendingSkilt) {
       cancelPendingSkilt();
     } else if (state.roomMode === 'free' && state.polyDraw && !state.polyDone) {
@@ -781,6 +999,13 @@ function updateDP() {
   updateSkilt3dCtrl();
   if (!it) { p.innerHTML = '<div class="em">Velg et element</div>'; return; }
   const d = it.def;
+  // Guard: if the def is missing (e.g. corrupted save or unknown typeId), show a
+  // safe fallback rather than crashing the entire panel on d.name / d.sap etc.
+  if ((it.kind === 'container' || it.kind === 'wall') && !d) {
+    p.innerHTML = `<div class="em">Ukjent type (${it.typeId})</div>
+      <button class="rpb rpbd" onclick="delSel()">Slett</button>`;
+    return;
+  }
   const rd = Math.round((it.rot || 0) * 180 / Math.PI) % 360;
 
   let fraksjonHtml = '';
@@ -824,9 +1049,31 @@ function updateDP() {
   }
 }
 
+// Returns wall candidates from inner partition walls for point (x, y).
+// Normals are bidirectional — always oriented toward the query point so containers
+// on either side of an inner wall snap and receive signs correctly.
+function innerWallCandidates(x, y) {
+  const results = [];
+  for (const iw of state.items.filter(i => i.kind === 'innerwall')) {
+    const ax = iw.x1, ay = iw.y1, bx = iw.x2, by = iw.y2;
+    const ex = bx - ax, ey = by - ay, len2 = ex*ex + ey*ey;
+    if (len2 < 1e-9) continue;
+    const t = Math.max(0, Math.min(1, ((x - ax)*ex + (y - ay)*ey) / len2));
+    const wallX = ax + t*ex, wallY = ay + t*ey;
+    const dist = Math.hypot(x - wallX, y - wallY);
+    const len = Math.sqrt(len2);
+    // Left-perpendicular, then flip toward query point
+    let nx = -(ey / len), ny = ex / len;
+    if (nx * (x - wallX) + ny * (y - wallY) < 0) { nx = -nx; ny = -ny; }
+    results.push({ dist, wallX, wallY, nx, ny });
+  }
+  return results;
+}
+
 // Returns info about the nearest wall to point (x,y): { dist, wallX, wallY, nx, ny }
-// Works for both rect and free mode
+// Works for both rect and free mode, and includes inner partition walls.
 function nearestWall(x, y) {
+  let best = null;
   if (state.roomMode === 'rect') {
     const W = state.roomW, D = state.roomD;
     const sides = [
@@ -835,33 +1082,37 @@ function nearestWall(x, y) {
       { dist: x,     wallX: 0, wallY: y,   nx: 1,  ny: 0  }, // west
       { dist: W - x, wallX: W, wallY: y,   nx: -1, ny: 0  }, // east
     ];
-    return sides.reduce((a, b) => a.dist < b.dist ? a : b);
+    best = sides.reduce((a, b) => a.dist < b.dist ? a : b);
+  } else {
+    // Free mode — find closest poly segment.
+    // Use winding order to determine inward normals — avoids centroid-based flipping
+    // which fails for concave rooms (L/U/T-shapes) where the centroid can fall outside
+    // the polygon. For a CW polygon on a Y-down canvas (shoelace > 0), the default
+    // left-perpendicular (-ey, ex) already points INWARD, so sign = +1. For CCW
+    // (shoelace < 0) it points outward, so we flip with sign = -1.
+    const pts = state.poly;
+    if (!pts || pts.length < 3) return null;
+    const shoelace = pts.reduce((sum, p, i) => {
+      const q = pts[(i + 1) % pts.length];
+      return sum + p.x * q.y - q.x * p.y;
+    }, 0);
+    const sign = shoelace > 0 ? 1 : -1;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const len2 = ex*ex + ey*ey;
+      if (len2 < 1e-9) continue;
+      const t = Math.max(0, Math.min(1, ((x - a.x)*ex + (y - a.y)*ey) / len2));
+      const wx = a.x + t*ex, wy = a.y + t*ey;
+      const dist = Math.hypot(x - wx, y - wy);
+      const len = Math.sqrt(len2);
+      const nx = sign * (-ey / len), ny = sign * (ex / len);
+      if (!best || dist < best.dist) best = { dist, wallX: wx, wallY: wy, nx, ny };
+    }
   }
-  // Free mode — find closest poly segment
-  const pts = state.poly;
-  if (!pts || pts.length < 3) return null;
-  // Use winding order to determine inward normals — avoids centroid-based flipping
-  // which fails for concave rooms (L/U/T-shapes) where the centroid can fall outside
-  // the polygon. For a CW polygon on a Y-down canvas (shoelace > 0), the default
-  // left-perpendicular (-ey, ex) already points INWARD, so sign = +1. For CCW
-  // (shoelace < 0) it points outward, so we flip with sign = -1.
-  const shoelace = pts.reduce((sum, p, i) => {
-    const q = pts[(i + 1) % pts.length];
-    return sum + p.x * q.y - q.x * p.y;
-  }, 0);
-  const sign = shoelace > 0 ? 1 : -1;
-  let best = null;
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    const ex = b.x - a.x, ey = b.y - a.y;
-    const len2 = ex*ex + ey*ey;
-    if (len2 < 1e-9) continue;
-    const t = Math.max(0, Math.min(1, ((x - a.x)*ex + (y - a.y)*ey) / len2));
-    const wx = a.x + t*ex, wy = a.y + t*ey;
-    const dist = Math.hypot(x - wx, y - wy);
-    const len = Math.sqrt(len2);
-    const nx = sign * (-ey / len), ny = sign * (ex / len);
-    if (!best || dist < best.dist) best = { dist, wallX: wx, wallY: wy, nx, ny };
+  // Include inner partition walls — bidirectional, so containers on either side snap correctly
+  for (const c of innerWallCandidates(x, y)) {
+    if (!best || c.dist < best.dist) best = c;
   }
   return best;
 }
@@ -885,35 +1136,39 @@ function bestWallByDirection(candidates, dirNx, dirNy, maxDist) {
 // Finds the wall that best matches the given direction (dirNx, dirNy) within maxDist.
 // Uses bestWallByDirection() on all polygon edges or rect sides depending on roomMode.
 // Unlike nearestWall(), this picks by directional alignment, not pure proximity.
+// Also considers inner partition walls (bidirectional normals).
 function findWallByDirection(x, y, dirNx, dirNy, maxDist) {
+  let candidates = [];
   if (state.roomMode === 'rect') {
     const W = state.roomW, D = state.roomD;
-    const candidates = [
+    candidates = [
       { dist: y,     wallX: x, wallY: 0, nx: 0,  ny: 1  },
       { dist: D - y, wallX: x, wallY: D, nx: 0,  ny: -1 },
       { dist: x,     wallX: 0, wallY: y, nx: 1,  ny: 0  },
       { dist: W - x, wallX: W, wallY: y, nx: -1, ny: 0  },
     ];
-    return bestWallByDirection(candidates, dirNx, dirNy, maxDist);
+  } else {
+    const pts = state.poly;
+    if (pts && pts.length >= 3) {
+      const shoelace = pts.reduce((sum, p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        return sum + p.x * q.y - q.x * p.y;
+      }, 0);
+      const sign = shoelace > 0 ? 1 : -1;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        const ex = b.x - a.x, ey = b.y - a.y, len2 = ex*ex + ey*ey;
+        if (len2 < 1e-9) continue;
+        const t = Math.max(0, Math.min(1, ((x - a.x)*ex + (y - a.y)*ey) / len2));
+        const wallX = a.x + t*ex, wallY = a.y + t*ey;
+        const dist = Math.hypot(x - wallX, y - wallY);
+        const len = Math.sqrt(len2);
+        candidates.push({ dist, wallX, wallY, nx: sign * (-ey / len), ny: sign * (ex / len) });
+      }
+    }
   }
-  const pts = state.poly;
-  if (!pts || pts.length < 3) return null;
-  const shoelace = pts.reduce((sum, p, i) => {
-    const q = pts[(i + 1) % pts.length];
-    return sum + p.x * q.y - q.x * p.y;
-  }, 0);
-  const sign = shoelace > 0 ? 1 : -1;
-  const candidates = [];
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    const ex = b.x - a.x, ey = b.y - a.y, len2 = ex*ex + ey*ey;
-    if (len2 < 1e-9) continue;
-    const t = Math.max(0, Math.min(1, ((x - a.x)*ex + (y - a.y)*ey) / len2));
-    const wallX = a.x + t*ex, wallY = a.y + t*ey;
-    const dist = Math.hypot(x - wallX, y - wallY);
-    const len = Math.sqrt(len2);
-    candidates.push({ dist, wallX, wallY, nx: sign * (-ey / len), ny: sign * (ex / len) });
-  }
+  // Inner partition walls contribute bidirectional candidates
+  candidates.push(...innerWallCandidates(x, y));
   return bestWallByDirection(candidates, dirNx, dirNy, maxDist);
 }
 
@@ -949,6 +1204,10 @@ function allNearbyWalls(x, y, maxDist) {
     if (dist > maxDist) continue;
     const len = Math.sqrt(len2);
     results.push({ dist, wallX, wallY, nx: sign * (-ey / len), ny: sign * (ex / len) });
+  }
+  // Include inner partition walls — bidirectional candidates within maxDist
+  for (const c of innerWallCandidates(x, y)) {
+    if (c.dist <= maxDist) results.push(c);
   }
   return results;
 }

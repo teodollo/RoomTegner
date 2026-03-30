@@ -90,16 +90,27 @@ header { display: flex; align-items: center; gap: 10px; padding: 0 16px; height:
 .phint { font-size: 10px; color: var(--muted); line-height: 1.5; background: var(--bg); border-radius: 5px; padding: 7px 9px; margin-bottom: 8px; }
 .phint b { color: var(--ng); }
 
+/* Fraksjon picker */
+#fraksjon-picker { padding: 8px 8px 4px; border-bottom: 1px solid var(--border); }
+.fraksjon-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+.fraksjon-chips { display: flex; flex-direction: column; gap: 2px; }
+.fraksjon-chip { display: flex; align-items: center; gap: 7px; width: 100%; padding: 4px 7px; border-radius: 6px; border: 1.5px solid transparent; background: transparent; cursor: pointer; text-align: left; transition: background .1s, border-color .1s; }
+.fraksjon-chip:hover { background: var(--hover); }
+.fraksjon-chip.active { background: var(--hover); border-color: var(--chip-color); }
+.chip-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+.chip-label { font-size: 11px; color: var(--text); }
+.fraksjon-chip.active .chip-label { font-weight: 600; }
+
 /* Container list */
 .cl { display: flex; flex-direction: column; gap: 2px; padding: 6px; }
-.ci { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: default; border: 1px solid transparent; transition: all .12s; }
+.ci { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; border: 1px solid transparent; transition: all .12s; }
 .ci:hover { background: var(--hover); border-color: var(--border); }
+.ci:hover .ci-add { background: #d4471a; opacity: 1; }
 .ci-icon { width: 32px; height: 40px; flex-shrink: 0; }
 .ci-info { flex: 1; min-width: 0; }
 .ci-name { font-size: 12px; font-weight: 600; }
 .ci-dims { font-size: 10px; color: var(--muted); margin-top: 1px; }
-.ci-add { width: 22px; height: 22px; border-radius: 50%; background: var(--ng); color: #fff; border: none; cursor: pointer; font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.ci-add:hover { background: #d4471a; }
+.ci-add { width: 22px; height: 22px; border-radius: 50%; background: var(--ng); color: #fff; font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center; flex-shrink: 0; opacity: 0; transition: background .12s, opacity .12s; }
 
 /* Wall elements */
 .we-list { display: flex; flex-direction: column; gap: 2px; padding: 6px; }

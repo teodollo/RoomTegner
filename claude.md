@@ -1,0 +1,176 @@
+# TEO Room Planner — Project Context
+
+## What is this?
+A web-based room planner for Norsk Gjenvinning (NG) where salespeople can draw waste rooms, place containers, and export a PDF quote for customers.
+
+## Stack
+- **Backend:** FastAPI + SQLite (`app.py`), runs on port 8000
+- **Frontend:** Vanilla JS, HTML, CSS — no bundler/framework
+- **3D:** Three.js r128 with GLB models from Cloudflare R2
+- **Deploy:** Render.com (`python app.py`)
+
+## File Structure
+```
+app.py                  ← FastAPI REST API + SQLite + /r2/ proxy for Cloudflare R2
+static/
+  index.html
+  css/style.css
+  fonts/                ← Self-hosted fonts (served statically)
+  js/
+    data.js             ← DEFS, WALL_EL_DEFS, FRAKSJONER, SKILT_DEFS
+    state.js            ← state object, getO(), getPPM(), calcPPM(), toJSON/fromJSON
+    render2d.js         ← Canvas 2D renderer
+    render3d.js         ← Three.js 3D, GLB-loader, buildSkilt3D, captureTopDown
+    app.js              ← Events, UI, drag/rotate, poly-drawing, PDF export
+    api.js              ← Save/load sketches to/from backend
+    GLTFLoader.js
+    three.min.js        ← Bundled Three.js r128
+    jspdf.umd.min.js    ← Bundled jsPDF
+```
+
+## Coordinate System
+- **Canvas 2D:** X right, Y down (standard canvas). Units = meters.
+- **Three.js 3D:** canvas X → Three.js X, canvas Y → Three.js Z. Y is up.
+- `getO()` returns `{ox, oy}` — pixel origin of the room on the canvas
+- `getPPM()` — pixels per meter (including zoom)
+
+## Room Shapes
+- `state.roomMode = 'free'` (freehand, default) or `'rect'` (rectangle for testing)
+- Freehand: points in `state.poly[]`, closed when `state.polyDone = true`
+- `nearestWall(x, y)` → `{dist, wallX, wallY, nx, ny}` — works in both modes
+- Inward normals: point into the room from the wall
+
+## Containers and Signs
+- Container snaps to wall during drag (`snapToWall`). Snap is edge-based: fires when the item's edge is within 0.25m of the wall (`SNAP_DIST = Math.max(hw, hd) + 0.25`). Not a fixed 0.5m threshold.
+- On mouseup: `checkAutoSkilt(container)` → automatically adds a sorting sign if within 0.8m of a wall
+- Sign size scales with container width: ~70% of bin width, clamped 0.25–0.65m
+- Signs store `_wallNx/Ny/X/Y` for 3D placement
+- Signs follow their container during drag (`_linkedTo: container.id`)
+
+## State (important fields)
+```js
+state.view            // '2d' | '3d'
+state.tool            // 'move' | etc.
+state.roomMode        // 'free' | 'rect'
+state.poly            // [{x,y}] — room corners in meters
+state.polyDone        // true when room is closed
+state.polyDraw        // true while drawing
+state.items           // all objects: container | wall | skilt | note | exit
+state.sel             // id of selected object
+state.drag            // object being dragged (null if none)
+state.rotat           // object being rotated (null if none)
+state.pendingSkilt    // {id, def} — sign waiting for a container click
+state.zoom / panX/Y   // camera
+state.sketchId        // null or backend sketch ID
+state.sketchName      // display name ('Ny skisse' default)
+state.customer        // customer name for PDF
+state.rooms           // [{id, name, data}] — multi-room array
+state.activeRoom      // index into state.rooms
+state._pdfExporting   // true only during PDF snapshot — suppresses UI overlays
+```
+
+## External Resources
+All Cloudflare R2 assets are served through the local `/r2/<filename>` proxy in `app.py` — never fetched directly from R2 by the browser. This avoids CORS issues and keeps `canvas.toDataURL()` usable for PDF export.
+
+- **R2 base:** `https://pub-27fd45166dba4be8a488b48df57742df.r2.dev/`
+- **GLB models (bins):** 140L.glb, 240.glb, 360.glb, 660L.glb, 1000L.glb, Balex.glb
+- **GLB models (machines):** Orwak_Multi_5070.glb, OW5070_combi_restavfall.glb, EnviroPac-Kjøler.glb, APS_800.glb
+- **Sorting sign PNGs (sortere.no):** loaded via same `/r2/` proxy — filenames defined in `SKILT_DEFS` in `data.js`
+
+## Known Ongoing Issues
+- No touch support for 3D orbit
+- `overlayFraksjonIcons()` is written but currently disabled in `generatePDF()` — coordinate mapping from 3D scene to top-down image pixels is not yet verified (comment in app.js line ~1434)
+
+---
+
+## Decision Log
+
+> **Rule:** Add a new entry here whenever a significant architectural decision is made, a bug fix changes how a core system works, or a pattern is established that future code must follow.
+> Format: Problem → Decision → Why → Pattern to follow.
+
+---
+
+### 3D rebuilt on mouseup, not per frame — 2025
+**Problem:** Rebuilding Three.js meshes on every mousemove event caused garbage collection and noticeable lag.
+**Decision:** 2D canvas handles real-time drag feedback. The 3D scene is fully rebuilt only on `mouseup`.
+**Why:** Mesh teardown + rebuild is expensive. 2D is cheap to redraw per frame. The split gives responsive drag without 3D overhead.
+**Pattern:** Never call `rebuild3D()` inside `mousemove` handlers. Only on `mouseup` or explicit user action.
+
+---
+
+### Wall geometry pushed outward — 2025-02 (commit 0b07aec)
+**Problem:** Containers placed against the wall were clipping through it in 3D.
+**Decision:** Wall mesh is offset outward by half the wall thickness so containers placed at the wall edge sit flush.
+**Why:** Three.js geometry is centered on its position. Without the offset, half the wall would stick into the room and half outside.
+**Pattern:** Wall mesh offset must match the container snap threshold (0.5m). If the threshold changes, update the offset accordingly.
+
+---
+
+### PDF export: 2D snapshot + optional 3D top-down capture — 2025-03 (commit 84ee214), updated 2026-03
+**Problem:** WebGL readback for a 3D snapshot is unreliable across browsers and requires significant setup.
+**Decision:** PDF primary layout uses a clean 2D canvas snapshot (no UI chrome), with auto-fit scaling and a grouped data table. A top-down 3D capture (`scene3d.captureTopDown()`) is also taken and included as a visual supplement.
+**Why:** The 2D canvas is the authoritative source for room data. 3D capture is visual only — the quote data always comes from `state`.
+**Pattern:** PDF data (container list, dimensions, quantities) must always come from `state`. The 3D scene may be used for visual snapshots only. `scene3d.init()` is idempotent and falls back to 1200×800 if the 3D container is hidden when PDF is triggered from 2D mode. `scene3d.rebuildSync()` guarantees the scene is current before capture.
+
+---
+
+### HiDPI/Retina canvas scaling — 2025-01 (commit 57e6519)
+**Problem:** Canvas drawing was blurry on Retina and HiDPI screens.
+**Decision:** Canvas `width`/`height` are multiplied by `devicePixelRatio`. CSS size stays unchanged. All canvas content is scaled by DPR in render functions.
+**Why:** Without DPR correction, the browser stretches a low-resolution canvas to fill the screen.
+**Pattern:** All new `<canvas>` elements must apply DPR scaling at init. See `render2d.js` for the reference implementation.
+
+---
+
+### Auto-signs linked to container via `_linkedTo` — 2025
+**Problem:** Sorting signs needed to move with their associated container during drag.
+**Decision:** Signs store `_linkedTo: container.id`. During container drag, all items with a matching `_linkedTo` are repositioned.
+**Why:** Simple reference rather than a complex parent/child tree structure. Appropriate for the scale of this project.
+**Pattern:** Any item that should "follow" another uses the `_linkedTo` pattern. The drag logic in `app.js` handles this automatically.
+
+---
+
+### Sign offset breaks when wall geometry changes — 2026-03 (wall fix 0b07aec, sign fix follows)
+**Problem:** After pushing wall meshes outward by `WALL_THICK/2` so inner faces align with the polygon boundary, signs started floating inside/over containers instead of sitting on the wall.
+**Root cause:** `buildSkilt3D` used `wallThick = WALL_THICK/2 + 0.025m`. The `WALL_THICK/2` component assumed `wi.wx/wz` (from `nearestWall()`) was the wall mesh center. After the wall-push fix it became the inner face, so the sign was pushed 0.06m too far into the room — into the container mesh.
+**Decision:** Remove `WALL_THICK/2` from the offset. `wallThick = frame_half_depth + clearance = 0.025m` only.
+**Pattern:** `nearestWall()` always returns a point on the polygon boundary. After commit 0b07aec, polygon boundary = inner wall face. Any code offsetting from `_wallX/_wallY` must NOT add `WALL_THICK/2` — that was only needed when the wall center was at the polygon boundary.
+
+---
+
+### Multi-room support via rooms[] array — 2026
+**Problem:** Users needed to plan multiple waste rooms in the same sketch.
+**Decision:** `state.rooms[]` holds `{id, name, data}` entries. `state.activeRoom` is the index of the currently displayed room. Switching rooms serialises the current room to `data` and deserialises the target room.
+**Why:** Minimal change to the existing single-room state shape — `toJSON/fromJSON` still works per-room. The outer sketch format bumped to `version: 2` to distinguish multi-room saves from legacy single-room saves.
+**Pattern:** Always read/write the active room through `toJSON/fromJSON`. Never access `state.rooms[n].data` directly to get geometry — call `fromJSON` first.
+
+---
+
+### All R2 assets proxied via /r2/ — 2026
+**Problem:** Direct browser fetches from Cloudflare R2 trigger CORS errors, and taint the canvas making `toDataURL()` fail during PDF export.
+**Decision:** `app.py` exposes `/r2/<filename>` which fetches from R2 server-side and streams the result to the browser. All GLBs and sign PNGs go through this proxy.
+**Why:** Same-origin responses are never tainted. The proxy also caches responses in-memory (up to 200 entries) to avoid redundant R2 round-trips.
+**Pattern:** Never add a hard-coded `https://pub-27fd45166dba4be8a488b48df57742df.r2.dev/` URL in frontend code. Always use `/r2/<filename>`.
+
+---
+
+### API key auth on all /api/ routes — 2025-01 (commit 087b680)
+**Problem:** The backend was open without authentication.
+**Decision:** Simple API key header check (`X-API-Key`) on all `/api/` endpoints via a FastAPI dependency.
+**Why:** Simple and sufficient for internal use. Avoids the complexity of OAuth/JWT for this use case.
+**Pattern:** All new API routes must go under `/api/` and will inherit the auth middleware automatically.
+
+---
+
+## Live URL
+https://roomtegner.onrender.com
+
+## AI Role and Workflow
+- Act as an experienced architect and senior developer.
+- Write production-quality code appropriate to the project's scale — do not over-engineer.
+- Avoid temporary solutions and shortcuts where they create technical debt.
+- Code must be modular and easy to test.
+- Always explain the performance characteristics of proposed solutions.
+- State potential drawbacks of technical choices.
+- Update this document when architecture or file structure changes (especially File Structure, Known Ongoing Issues, and Decision Log).
+- Comment non-obvious decisions in code — explain *why*, not what. Include performance rationale (e.g. "2D only here — 3D rebuilds on mouseup to avoid per-frame mesh teardown"). Future engineers (and Claude) must be able to understand the reasoning without reading git history.

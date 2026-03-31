@@ -1375,6 +1375,7 @@ function checkAutoSkilt(it) {
     plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
     metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
     batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
+    frityrolje: 'sk-frityrolje', porselen: 'sk-porselen',
   };
   const skiltId = fraksjonToSkilt[it.fraksjon || 'rest'];
   if (!skiltId) return;

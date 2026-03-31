@@ -46,6 +46,8 @@ const FRAKSJONER = [
   { id: 'batterier',  label: 'Batterier',                 color: '#f9a825', lidColor: '#f57f17', textColor: '#222' },
   { id: 'lysstoffror',label: 'Lysstoffrør',               color: '#80deea', lidColor: '#4dd0e1', textColor: '#222' },
   { id: 'tonerkassett',label:'Tonerkassett',              color: '#424242', lidColor: '#212121', textColor: '#fff' },
+  { id: 'frityrolje',  label: 'Frityrolje',               color: '#ff8f00', lidColor: '#e65100', textColor: '#fff' },
+  { id: 'porselen',    label: 'Porselen',                  color: '#90a4ae', lidColor: '#607d8b', textColor: '#fff' },
 ];
 
 function getFraksjon(id) {
@@ -70,6 +72,8 @@ const SKILT_DEFS = [
   { id: 'sk-batterier',    name: 'Batterier',               url: `${R2}/Batterier_web.png`,              iconUrl: `${R2}/Batterier_web.png`              },
   { id: 'sk-lysstoffror',  name: 'Lysstoffrør',             url: `${R2}/Lysstoffror_web.png`,            iconUrl: `${R2}/Lysstoffror_web.png`            },
   { id: 'sk-tonerkassett', name: 'Tonerkassett',            url: `${R2}/Tonerkassett_web.png`,           iconUrl: `${R2}/Tonerkassett_web.png`           },
+  { id: 'sk-frityrolje',  name: 'Frityrolje',              url: `${R2}/Frityrolje_web.png`,             iconUrl: `${R2}/Frityrolje_web.png`             },
+  { id: 'sk-porselen',    name: 'Porselen',                url: `${R2}/Porselen_web.png`,               iconUrl: `${R2}/Porselen_web.png`               },
 ];
 
 const NG_ORANGE = '#E8521A';

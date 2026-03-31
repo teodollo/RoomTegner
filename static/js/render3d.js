@@ -579,6 +579,8 @@ const scene3d = (() => {
     'sk-batterier':    { label: 'Batterier',               r2: 'Batterier_web.png'              },
     'sk-lysstoffror':  { label: 'Lysstoffrør',             r2: 'Lysstoffror_web.png'            },
     'sk-tonerkassett': { label: 'Tonerkassett',            r2: 'Tonerkassett_web.png'           },
+    'sk-frityrolje':   { label: 'Frityrolje',              r2: 'Frityrolje_web.png'             },
+    'sk-porselen':     { label: 'Porselen',                r2: 'Porselen_web.png'               },
   };
 
   function makeSkiltTexture(typeId) {

@@ -36,11 +36,14 @@ window.addEventListener('load', () => {
   const bar       = document.getElementById('loading-bar');
   const countEl   = document.getElementById('loading-count');
   // Arrow-key input field: Enter commits, Escape cancels, stopPropagation keeps onKey() out
-  document.getElementById('arrow-input-field').addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); commitArrowInput(); }
-    if (e.key === 'Escape') { e.preventDefault(); hideArrowInput(); }
-    e.stopPropagation();
-  });
+  const arrowField = document.getElementById('arrow-input-field');
+  if (arrowField) {
+    arrowField.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); commitArrowInput(); }
+      if (e.key === 'Escape') { e.preventDefault(); hideArrowInput(); }
+      e.stopPropagation();
+    });
+  }
 
   scene3d.preloadAll(
     (loaded, total) => {

@@ -295,13 +295,15 @@ const scene3d = (() => {
       '660L':  `${R2}/660L.glb${GLB_V}`,
       '660LG': `${R2}/660L.glb${GLB_V}`,
       '1000L': `${R2}/1000L.glb${GLB_V}`,
-      'BALEX':   `${R2}/Balex.glb${GLB_V}`,
-      'BALEX10': `${R2}/Balex.glb${GLB_V}`,
+      'BALEX':     `${R2}/Balex.glb${GLB_V}`,
+      'BALEX10':   `${R2}/Balex.glb${GLB_V}`,
+      'ORWAK3420': `${R2}/orwak_3420.glb?v=2`,
       'ORWAK5070':   `${R2}/Orwak_Multi_5070.glb`,
       'OW5070COMBI': `${R2}/OW5070_combi_restavfall.glb?v=9`,
       'ENVIROPAC':   `${R2}/EnviroPac-Kjøler.glb`,
       'APS800':      `${R2}/APS_800.glb`,
       '800LSTATIV':  `${R2}/800l-stativ.glb`,
+      '60LFAT':      `${R2}/60L_fat.glb`,
       '200LFAT':     `${R2}/200L-Fat.glb`,
       'PALL':        `${R2}/pall.glb`,
     };
@@ -574,6 +576,9 @@ const scene3d = (() => {
     'sk-eps':        { label: 'EPS',                       r2: 'EPS_web.png'                    },
     'sk-farlig':     { label: 'Farlig avfall',             r2: 'Farlig_avfall_web.png'          },
     'sk-ee':         { label: 'EE-avfall',                 r2: 'Elektronikk_web.png'            },
+    'sk-batterier':    { label: 'Batterier',               r2: 'Batterier_web.png'              },
+    'sk-lysstoffror':  { label: 'Lysstoffrør',             r2: 'Lysstoffror_web.png'            },
+    'sk-tonerkassett': { label: 'Tonerkassett',            r2: 'Tonerkassett_web.png'           },
   };
 
   function makeSkiltTexture(typeId) {
@@ -783,14 +788,16 @@ const scene3d = (() => {
       '660L':  `${R2}/660L.glb${GLB_V}`,
       '660LG': `${R2}/660L.glb${GLB_V}`,
       '1000L': `${R2}/1000L.glb${GLB_V}`,
-      'BALEX':   `${R2}/Balex.glb${GLB_V}`,
-      'BALEX10': `${R2}/Balex.glb${GLB_V}`,
+      'BALEX':     `${R2}/Balex.glb${GLB_V}`,
+      'BALEX10':   `${R2}/Balex.glb${GLB_V}`,
+      'ORWAK3420': `${R2}/orwak_3420.glb?v=2`,
       // Machines — GLBs with baked textures (no material replacement; see texture-preserve branch below)
       'ORWAK5070':   `${R2}/Orwak_Multi_5070.glb`,
       'OW5070COMBI': `${R2}/OW5070_combi_restavfall.glb?v=9`,
       'ENVIROPAC':   `${R2}/EnviroPac-Kjøler.glb`,
       'APS800':      `${R2}/APS_800.glb`,
       '800LSTATIV':  `${R2}/800l-stativ.glb`,
+      '60LFAT':      `${R2}/60L_fat.glb`,
       '200LFAT':     `${R2}/200L-Fat.glb`,
       'PALL':        `${R2}/pall.glb`,
     };
@@ -817,7 +824,7 @@ const scene3d = (() => {
           console.groupEnd();
         }
 
-        if (def.id === 'BALEX' || def.id === 'BALEX10' || def.type === 'machine') {
+        if (def.type === 'compactor' || def.type === 'machine') {
           // GLBs with baked textures — preserve albedo map (map) so the texture shows,
           // but strip metalness/roughness maps and force fully matte PBR values.
           // metalnessMap/roughnessMap in the GLB override scalar values and cause
@@ -1298,6 +1305,8 @@ const scene3d = (() => {
       `${R2}/800l-stativ.glb`,
       `${R2}/200L-Fat.glb`,
       `${R2}/pall.glb`,
+      `${R2}/60L_fat.glb`,
+      `${R2}/orwak_3420.glb?v=2`,
     ];
     const total = urls.length;
     let loaded = 0;

@@ -51,6 +51,7 @@ const FRAKSJONER = [
   { id: 'porselen',    label: 'Porselen',                  color: '#90a4ae', lidColor: '#607d8b', textColor: '#fff' },
   { id: 'lysparer',    label: 'Lyspærer',                  color: '#fff176', lidColor: '#f9a825', textColor: '#222' },
   { id: 'spraybokser', label: 'Spraybokser',               color: '#ef9a9a', lidColor: '#c62828', textColor: '#fff' },
+  { id: 'papir2',      label: 'Papir',                     color: '#1e88e5', lidColor: '#1565c0', textColor: '#fff' },
 ];
 
 function getFraksjon(id) {
@@ -79,6 +80,7 @@ const SKILT_DEFS = [
   { id: 'sk-porselen',    name: 'Porselen',                url: `${R2}/Porselen_web.png`,               iconUrl: `${R2}/Porselen_web.png`               },
   { id: 'sk-lysparer',    name: 'Lyspærer',                url: `${R2}/Lysparer_web.png`,               iconUrl: `${R2}/Lysparer_web.png`               },
   { id: 'sk-spraybokser', name: 'Spraybokser',             url: `${R2}/Spraybokser_web.png`,            iconUrl: `${R2}/Spraybokser_web.png`            },
+  { id: 'sk-papir2',      name: 'Papir',                   url: `${R2}/Papir_web.png`,                  iconUrl: `${R2}/Papir_web.png`                  },
 ];
 
 const NG_ORANGE = '#E8521A';

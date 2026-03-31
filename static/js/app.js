@@ -1376,6 +1376,8 @@ function checkAutoSkilt(it) {
     metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
     batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
     frityrolje: 'sk-frityrolje', porselen: 'sk-porselen',
+    lysparer: 'sk-lysparer', spraybokser: 'sk-spraybokser',
+    papir2: 'sk-papir2',
   };
   const skiltId = fraksjonToSkilt[it.fraksjon || 'rest'];
   if (!skiltId) return;
@@ -1417,6 +1419,8 @@ function setFraksjon(id, fraksjon) {
       plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
       metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
       batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
+      frityrolje: 'sk-frityrolje', porselen: 'sk-porselen',
+      lysparer: 'sk-lysparer', spraybokser: 'sk-spraybokser',
     };
     const skiltId = fraksjonToSkilt[fraksjon];
     // Use _linkedTo (not proximity) so we always update the correct skilt when

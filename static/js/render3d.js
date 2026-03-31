@@ -584,6 +584,7 @@ const scene3d = (() => {
     'sk-porselen':     { label: 'Porselen',                r2: 'Porselen_web.png'               },
     'sk-lysparer':     { label: 'Lyspærer',                r2: 'Lysparer_web.png'               },
     'sk-spraybokser':  { label: 'Spraybokser',             r2: 'Spraybokser_web.png'            },
+    'sk-papir2':       { label: 'Papir',                   r2: 'Papir_web.png'                  },
   };
 
   function makeSkiltTexture(typeId) {

@@ -1421,6 +1421,7 @@ function setFraksjon(id, fraksjon) {
       batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
       frityrolje: 'sk-frityrolje', porselen: 'sk-porselen',
       lysparer: 'sk-lysparer', spraybokser: 'sk-spraybokser',
+      papir2: 'sk-papir2',
     };
     const skiltId = fraksjonToSkilt[fraksjon];
     // Use _linkedTo (not proximity) so we always update the correct skilt when

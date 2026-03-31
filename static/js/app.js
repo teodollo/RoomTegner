@@ -35,6 +35,13 @@ window.addEventListener('load', () => {
   const overlay   = document.getElementById('loading-overlay');
   const bar       = document.getElementById('loading-bar');
   const countEl   = document.getElementById('loading-count');
+  // Arrow-key input field: Enter commits, Escape cancels, stopPropagation keeps onKey() out
+  document.getElementById('arrow-input-field').addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); commitArrowInput(); }
+    if (e.key === 'Escape') { e.preventDefault(); hideArrowInput(); }
+    e.stopPropagation();
+  });
+
   scene3d.preloadAll(
     (loaded, total) => {
       const pct = Math.round((loaded / total) * 100);
@@ -56,6 +63,52 @@ window.addEventListener('load', () => {
     }
   );
 });
+
+// ── Arrow-key exact-length drawing ───────────────────────────────────────
+let _arrowDir = null; // { dx, dy } — direction set when arrow key triggers input
+
+function showArrowInput(dx, dy, label) {
+  _arrowDir = { dx, dy };
+  const { ox, oy } = getO();
+  const ppm = getPPM();
+  const last = state.poly[state.poly.length - 1];
+  const canvas = document.getElementById('canvas-2d');
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const px = rect.left + (ox + last.x * ppm) / dpr;
+  const py = rect.top  + (oy + last.y * ppm) / dpr;
+  const overlay = document.getElementById('arrow-input');
+  document.getElementById('arrow-input-label').textContent = label;
+  overlay.style.left = (px + 16) + 'px';
+  overlay.style.top  = (py - 18) + 'px';
+  overlay.style.display = 'block';
+  const field = document.getElementById('arrow-input-field');
+  field.value = '';
+  field.focus();
+}
+
+function hideArrowInput() {
+  document.getElementById('arrow-input').style.display = 'none';
+  _arrowDir = null;
+}
+
+function commitArrowInput() {
+  const val = parseFloat(document.getElementById('arrow-input-field').value);
+  if (!_arrowDir || isNaN(val) || val <= 0) { hideArrowInput(); return; }
+  const last = state.poly[state.poly.length - 1];
+  const nx = last.x + _arrowDir.dx * val;
+  const ny = last.y + _arrowDir.dy * val;
+  hideArrowInput();
+  // Auto-close if new point is within 0.2m of start
+  const start = state.poly[0];
+  if (state.poly.length > 2 && Math.hypot(nx - start.x, ny - start.y) < 0.2) {
+    state.polyDone = true; state.polyDraw = false;
+    document.getElementById('canvas-2d').style.cursor = '';
+    calcPPM(); setInfo('Rom tegnet!'); render(); return;
+  }
+  state.poly.push({ x: nx, y: ny });
+  render();
+}
 
 function resizeAll() {
   const dpr = window.devicePixelRatio || 1;
@@ -950,6 +1003,16 @@ function onDbl(e) {
 
 function onKey(e) {
   if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+  // Arrow key → exact-length line input during free poly drawing
+  if (state.roomMode === 'free' && state.polyDraw && !state.polyDone && state.poly.length > 0) {
+    const dirs = {
+      ArrowRight: { dx:  1, dy:  0, label: '→ Lengde (m)' },
+      ArrowLeft:  { dx: -1, dy:  0, label: '← Lengde (m)' },
+      ArrowDown:  { dx:  0, dy:  1, label: '↓ Lengde (m)' },
+      ArrowUp:    { dx:  0, dy: -1, label: '↑ Lengde (m)' },
+    };
+    if (dirs[e.key]) { e.preventDefault(); showArrowInput(dirs[e.key].dx, dirs[e.key].dy, dirs[e.key].label); return; }
+  }
   // Ctrl+Z = undo last poly point (in wall-builder) or undo last placed item
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
     e.preventDefault();
@@ -1005,7 +1068,10 @@ function setView(v, btn) {
   document.getElementById('tb2d').style.display = v === '2d' ? 'flex' : 'none';
   if (v === '3d') {
     if (!scene3d._initialized) scene3d.init();
-    else scene3d.rebuild();
+    // Always resize — canvas was hidden during eager init so renderer may be
+    // sized to the 1200×800 fallback. Resize now that the canvas is visible.
+    scene3d.resize();
+    scene3d.rebuild();
   }
   updateSkilt3dCtrl();
   render();
@@ -1305,6 +1371,7 @@ function checkAutoSkilt(it) {
     rest: 'sk-rest', mat: 'sk-mat', papir: 'sk-papir', papp: 'sk-papp',
     plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
     metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
+    batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
   };
   const skiltId = fraksjonToSkilt[it.fraksjon || 'rest'];
   if (!skiltId) return;
@@ -1345,6 +1412,7 @@ function setFraksjon(id, fraksjon) {
       rest: 'sk-rest', mat: 'sk-mat', papir: 'sk-papir', papp: 'sk-papp',
       plast: 'sk-plast', plastfolie: 'sk-plastfolie', glass: 'sk-glass',
       metall: 'sk-metall', eps: 'sk-eps', farlig: 'sk-farlig', ee: 'sk-ee',
+      batterier: 'sk-batterier', lysstoffror: 'sk-lysstoffror', tonerkassett: 'sk-tonerkassett',
     };
     const skiltId = fraksjonToSkilt[fraksjon];
     // Use _linkedTo (not proximity) so we always update the correct skilt when

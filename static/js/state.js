@@ -29,6 +29,8 @@ const state = {
   // Multi-room support
   rooms: [{ id: 'room-1', name: 'Rom 1', data: null }],
   activeRoom: 0,
+  // Set to true when a sketch is opened via share code — disables all editing
+  readOnly: false,
 };
 
 function getO() {

@@ -33,6 +33,7 @@
     <button class="btn btn-gh btn-sm" onclick="exportSketch()" title="Last ned skisse som .json-fil"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Last ned</button>
     <button class="btn btn-gh btn-sm" onclick="document.getElementById('importInput').click()" title="Åpne en .json skissefil"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Last opp</button>
     <input type="file" id="importInput" accept=".json" style="display:none" onchange="importSketch(event)">
+    <button class="btn btn-gh btn-sm" onclick="openImportModal()" title="Åpne en skisse ved hjelp av en 6-tegns delingskode"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Importer kode</button>
     <button class="btn btn-warn btn-sm" onclick="resetRoom()" title="Fjern alle beholdere, behold romtegning"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg> Tøm rom</button>
     <button class="btn btn-danger btn-sm" onclick="resetAll()" title="Slett alt og start på nytt"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg> Nullstill</button>
     <button class="btn btn-ng btn-sm" onclick="newSketch()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Ny</button>
@@ -57,9 +58,9 @@
         <div class="sbs">
           <div class="sbl">Rom i bygget</div>
           <div id="room-list-items"></div>
-          <button class="btn btn-ng" style="width:100%;margin-top:7px;font-size:11px" onclick="addRoom()">+ Legg til rom</button>
+          <button id="sb-add-room-btn" class="btn btn-ng" style="width:100%;margin-top:7px;font-size:11px" onclick="addRoom()">+ Legg til rom</button>
         </div>
-        <div class="sbs">
+        <div class="sbs" id="sb-section-romform">
           <div class="sbl">Romform</div>
           <div class="rmb">
             <button class="rb" id="mrect" onclick="setRoomMode('rect')">Rektangel</button>
@@ -86,7 +87,7 @@
             <button class="btn btn-gh" style="width:100%;margin-top:5px;font-size:11px" onclick="resetPoly()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Tegn nytt rom</button>
           </div>
         </div>
-        <div class="sbs">
+        <div class="sbs" id="sb-section-zoom">
           <div class="sbl">Zoom</div>
           <div style="display:flex;gap:6px;align-items:center">
             <button class="btn btn-gh" style="flex:1;font-size:15px;padding:4px 0" onclick="zoomBtn(1)">＋</button>
@@ -94,7 +95,7 @@
             <button class="btn btn-gh" style="flex:1;font-size:11px;padding:4px 0" onclick="resetZoom()">1:1</button>
           </div>
         </div>
-        <div class="sbs">
+        <div class="sbs" id="sb-section-notater">
           <div class="sbl">Notater</div>
           <div class="ig"><label>Legg til notat</label>
             <input type="text" id="noteText" placeholder="Skriv notat..." onkeydown="if(e.key==='Enter')addNote()">
@@ -223,7 +224,7 @@
     <div class="ig"><label>Kundenavn</label><input type="text" id="saveCustomer" placeholder="f.eks. Bakehuset AS"></div>
     <div class="modal-footer">
       <button class="btn btn-gh" onclick="closeSaveModal()">Avbryt</button>
-      <button class="btn btn-ng" onclick="saveSketch()">Lagre</button>
+      <button class="btn btn-ng" id="saveBtnSubmit" onclick="saveSketch()">Lagre</button>
     </div>
   </div>
 </div>
@@ -239,6 +240,39 @@
     <div class="modal-footer">
       <button class="btn btn-gh" onclick="document.getElementById('pdfModal').classList.remove('open')">Avbryt</button>
       <button class="btn btn-ng" onclick="generatePDF()">Generer PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHARE MODAL — shown after seller clicks "Eksporter kode" on a saved sketch -->
+<div class="modal-bg" id="shareModal" style="display:none">
+  <div class="modal">
+    <h3>Del skisse</h3>
+    <div id="shareCode" style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;padding:16px;background:var(--bg);border-radius:8px;margin-bottom:12px"></div>
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin:0 0 6px">Eller del lenken:</p>
+    <div style="display:flex;gap:6px">
+      <input id="shareUrl" type="text" readonly style="flex:1;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)">
+      <button class="btn btn-ng btn-sm" onclick="copyShareUrl()">Kopier</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-gh" onclick="closeShareModal()">Lukk</button>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL — shown when user clicks "Importer kode" in the toolbar -->
+<div class="modal-bg" id="importModal" style="display:none">
+  <div class="modal">
+    <h3>Åpne delt skisse</h3>
+    <div class="ig">
+      <label>Skriv inn kode (6 tegn)</label>
+      <input type="text" id="importCodeInput" maxlength="6" placeholder="f.eks. A3KX9Z"
+        style="text-transform:uppercase;letter-spacing:3px;font-size:18px;text-align:center"
+        onkeydown="if(event.key==='Enter')importByCode()">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-gh" onclick="closeImportModal()">Avbryt</button>
+      <button class="btn btn-ng" onclick="importByCode()">Åpne</button>
     </div>
   </div>
 </div>
@@ -264,16 +298,30 @@
   <button class="btn-icon" onclick="document.getElementById('autosave-banner').style.display='none'" title="Lukk" style="font-size:16px;color:var(--muted)">×</button>
 </div>
 
-<script>window.API_KEY = "{{ api_key }}";</script>
+<script>window.API_KEY = "{{ api_key }}"; window.SELLER_PIN = "{{ seller_pin }}";</script>
 <script src="/static/js/three.min.js"></script>
 <script src="/static/js/GLTFLoader.js"></script>
 <script src="/static/js/jspdf.umd.min.js"></script>
-<script src="/static/js/data.js?v=8"></script>
-<script src="/static/js/state.js?v=8"></script>
-<script src="/static/js/render2d.js?v=8"></script>
-<script src="/static/js/render3d.js?v=8"></script>
-<script src="/static/js/api.js?v=8"></script>
-<script src="/static/js/app.js?v=8"></script>
+<script src="/static/js/data.js?v=9"></script>
+<script src="/static/js/state.js?v=9"></script>
+<script src="/static/js/render2d.js?v=9"></script>
+<script src="/static/js/render3d.js?v=9"></script>
+<script src="/static/js/api.js?v=9"></script>
+<script src="/static/js/app.js?v=9"></script>
+<!-- PIN overlay — shown when SELLER_PIN is set and session is not authenticated -->
+<div id="pin-overlay" style="display:none;position:fixed;inset:0;background:#111827;z-index:99999;
+  align-items:center;justify-content:center;flex-direction:column;gap:16px">
+  <div style="font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px">Folkets Avfallsrom</div>
+  <div style="font-size:13px;color:#9ca3af;margin-bottom:4px">Skriv inn PIN for å fortsette</div>
+  <input id="pin-input" type="password" maxlength="20" placeholder="PIN-kode"
+    style="font-size:18px;padding:10px 20px;border-radius:8px;border:none;text-align:center;width:200px;outline:none"
+    onkeydown="if(event.key==='Enter')checkPin()">
+  <button onclick="checkPin()"
+    style="background:#e85d2a;color:#fff;border:none;border-radius:8px;padding:10px 36px;font-size:14px;font-weight:600;cursor:pointer">
+    Logg inn
+  </button>
+</div>
+
 <!-- Arrow-key exact-length input — shown near last poly point during free drawing -->
 <div id="arrow-input" style="display:none;position:fixed;z-index:300;">
   <div class="arrow-input-box">

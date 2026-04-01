@@ -1,15 +1,57 @@
 // ── Init ────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
+  const urlCode = new URLSearchParams(location.search).get('code');
+  // Gate the seller tool behind a PIN. Share-link visitors (?code=) bypass this entirely.
+  if (!urlCode && window.SELLER_PIN && sessionStorage.getItem('seller_auth') !== '1') {
+    document.getElementById('pin-overlay').style.display = 'flex';
+    document.getElementById('pin-input').focus();
+    return; // halt all init — checkPin() calls initApp() after correct PIN
+  }
+  initApp(urlCode);
+});
+
+function checkPin() {
+  const val = document.getElementById('pin-input').value;
+  if (val === window.SELLER_PIN) {
+    sessionStorage.setItem('seller_auth', '1');
+    document.getElementById('pin-overlay').style.display = 'none';
+    initApp(null);
+  } else {
+    toast('Feil PIN');
+    document.getElementById('pin-input').value = '';
+    document.getElementById('pin-input').focus();
+  }
+}
+
+function initApp(urlCode) {
   buildContainerList();
   resizeAll();
   window.addEventListener('resize', () => { resizeAll(); render(); });
   setupEvents();
   setToday();
-  loadSavedList();
+
+  // If the URL contains ?code=XXXXXX, apply read-only mode IMMEDIATELY before
+  // any async work so the edit UI never flashes visible while data is loading.
+  if (urlCode) {
+    state.readOnly = true;
+    applyReadOnly();
+    api.getPublic(urlCode).then(sketch => {
+      if (!sketch) { toast('Ugyldig kode'); return; }
+      state.sketchName = sketch.name;
+      state.customer   = sketch.customer || '';
+      fromSketchJSON(sketch.data);
+      calcPPM(); updateDP(); render();
+      renderRoomTabs();
+      toast('Leser: ' + sketch.name);
+    });
+  } else {
+    loadSavedList();
+  }
+
   updateDP();
-  // Restore last session from localStorage
+  // Restore last session from localStorage — skip entirely in read-only share-link mode
   try {
-    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    const saved = !urlCode && localStorage.getItem(AUTOSAVE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
       fromSketchJSON(data);
@@ -65,7 +107,7 @@ window.addEventListener('load', () => {
       overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
     }
   );
-});
+}
 
 // ── Arrow-key exact-length drawing ───────────────────────────────────────
 let _arrowDir = null; // { dx, dy } — direction set when arrow key triggers input
@@ -747,6 +789,8 @@ function snapInnerWallPoint(rx, ry) {
 }
 
 function onMD(e) {
+  // In read-only mode only panning is allowed (right-click, middle-mouse, space+drag)
+  if (state.readOnly && e.button !== 2 && e.button !== 1 && !state.spaceDown) return;
   if (state.view !== '2d') return;
   const mx = e.offsetX, my = e.offsetY;
 
@@ -1659,8 +1703,10 @@ function renderRoomList() {
     inp.onclick = () => { if (i !== state.activeRoom) switchRoom(i); };
     inp.onblur = () => {
       const v = inp.value.trim();
-      if (v && v !== r.name) { r.name = v; renderRoomTabs(); scheduleAutosave(); }
-      else inp.value = r.name;
+      if (v && v !== r.name) {
+        if (containsProfanity(v)) { toast('Ugyldig romnavn'); inp.value = r.name; return; }
+        r.name = v; renderRoomTabs(); scheduleAutosave();
+      } else inp.value = r.name;
     };
     inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = r.name; inp.blur(); } };
     row.appendChild(inp);
@@ -1691,16 +1737,25 @@ async function saveSketch() {
   state.sketchName = name; state.customer = customer;
   document.getElementById('sketchLabel').textContent = name;
   const data = toSketchJSON();
-  const thumb = document.getElementById('canvas-2d').toDataURL('image/png', 0.4);
-  if (state.sketchId) {
-    await api.update(state.sketchId, { name, customer, data, thumbnail: thumb });
-  } else {
-    const res = await api.create(name, customer, data, thumb);
-    state.sketchId = res.id;
+  // JPEG keeps thumbnails ~10× smaller than PNG (quality param is ignored for PNG)
+  const thumb = document.getElementById('canvas-2d').toDataURL('image/jpeg', 0.4);
+  const saveBtn = document.getElementById('saveBtnSubmit');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Lagrer…';
+  try {
+    if (state.sketchId) {
+      await api.update(state.sketchId, { name, customer, data, thumbnail: thumb });
+    } else {
+      const res = await api.create(name, customer, data, thumb);
+      state.sketchId = res.id;
+    }
+    closeSaveModal();
+    autosave();
+    toast('Lagret ✓');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Lagre';
   }
-  closeSaveModal();
-  autosave();
-  toast('Lagret ✓');
 }
 
 async function loadSavedList() {
@@ -1721,9 +1776,11 @@ async function loadSavedList() {
     const actionsDiv = document.createElement('div'); actionsDiv.className = 'sk-item-actions';
     const loadBtn = document.createElement('button'); loadBtn.className = 'btn btn-ng btn-sm';
     loadBtn.textContent = 'Åpne'; loadBtn.onclick = () => loadSketch(s.id);
+    const shareBtn = document.createElement('button'); shareBtn.className = 'btn btn-gh btn-sm';
+    shareBtn.textContent = 'Eksporter kode'; shareBtn.onclick = () => shareSketch(s.id);
     const delBtn = document.createElement('button'); delBtn.className = 'btn btn-gh btn-sm';
     delBtn.textContent = 'Slett'; delBtn.onclick = function() { deleteSketch(s.id, this); };
-    actionsDiv.appendChild(loadBtn); actionsDiv.appendChild(delBtn);
+    actionsDiv.appendChild(loadBtn); actionsDiv.appendChild(shareBtn); actionsDiv.appendChild(delBtn);
 
     div.appendChild(nameDiv); div.appendChild(metaDiv); div.appendChild(actionsDiv);
     list.appendChild(div);
@@ -2064,4 +2121,95 @@ function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Share / read-only ──────────────────────────────────────────────────────
+
+// Called when seller clicks "Eksporter kode" next to a saved sketch.
+async function shareSketch(id) {
+  const res = await api.share(id);
+  if (!res || !res.code) { toast('Kunne ikke generere kode'); return; }
+  const url = `${location.origin}/?code=${res.code}`;
+  document.getElementById('shareCode').textContent = res.code;
+  document.getElementById('shareUrl').value = url;
+  document.getElementById('shareModal').style.display = 'flex';
+}
+
+function closeShareModal() {
+  document.getElementById('shareModal').style.display = 'none';
+}
+
+function copyShareUrl() {
+  navigator.clipboard.writeText(document.getElementById('shareUrl').value);
+  toast('Lenke kopiert');
+}
+
+// Applied once when a sketch is loaded via share code.
+// Hides all edit UI so customers/colleagues get a clean read-only view.
+// Room list stays visible and names can be changed (with profanity filter).
+// Panning and zoom still work — only editing is blocked.
+function applyReadOnly() {
+  // Hide toolbar edit actions
+  ['openSaveModal', 'exportPDF', 'resetRoom', 'resetAll', 'newSketch'].forEach(fn => {
+    document.querySelectorAll(`[onclick*="${fn}"]`).forEach(el => el.style.display = 'none');
+  });
+  // Hide all sidebar tabs except Rom
+  document.querySelectorAll('.sb-tab').forEach(el => {
+    if (!el.textContent.includes('Rom')) el.style.display = 'none';
+  });
+  // Hide the 2D edit toolbar (Flytt, Roter, 90°, Slett, Innervegg)
+  const tb2d = document.getElementById('tb2d');
+  if (tb2d) tb2d.style.display = 'none';
+  // Hide the hint bar ("Velg Beholdere i sidepanelet...")
+  const ib = document.getElementById('ib');
+  if (ib) ib.style.display = 'none';
+  // Within the Rom tab, hide Romform / Zoom / Notater and the add-room button
+  ['sb-section-romform', 'sb-section-zoom', 'sb-section-notater', 'sb-add-room-btn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  // Show read-only banner below the header (header is 50px)
+  const banner = document.createElement('div');
+  banner.id = 'readonly-banner';
+  banner.style.cssText = 'position:fixed;top:50px;left:0;right:0;background:#1c2a3a;color:#fff;text-align:center;padding:6px 12px;font-size:12px;z-index:9999;';
+  banner.textContent = 'Lesevisning — du kan ikke redigere denne skissen';
+  document.body.prepend(banner);
+}
+
+// Simple profanity filter for room names editable by customers in read-only mode.
+const _badWords = [
+  'faen','jævla','jævli','helvete','dritt','drittunge','pikk','fitte','kuk','ræv','satan','idiot','drittsekk',
+  'fuck','shit','ass','bitch','dick','cunt','bastard','asshole','cock','pussy','whore'
+];
+function containsProfanity(text) {
+  const lower = text.toLowerCase();
+  return _badWords.some(w => lower.includes(w));
+}
+
+// ── Import code modal ──────────────────────────────────────────────────────
+
+function openImportModal() {
+  document.getElementById('importCodeInput').value = '';
+  document.getElementById('importModal').style.display = 'flex';
+  document.getElementById('importCodeInput').focus();
+}
+
+function closeImportModal() {
+  document.getElementById('importModal').style.display = 'none';
+}
+
+async function importByCode() {
+  const code = document.getElementById('importCodeInput').value.trim().toUpperCase();
+  if (!code) return;
+  const sketch = await api.getPublic(code);
+  if (!sketch) { toast('Ugyldig kode'); return; }
+  closeImportModal();
+  state.readOnly = true;
+  state.sketchName = sketch.name;
+  state.customer   = sketch.customer || '';
+  fromSketchJSON(sketch.data);
+  applyReadOnly();
+  calcPPM(); updateDP(); render();
+  renderRoomTabs();
+  toast('Leser: ' + sketch.name);
 }

@@ -146,6 +146,30 @@ All Cloudflare R2 assets are served through the local `/r2/<filename>` proxy in 
 
 ---
 
+### PostgreSQL replaces SQLite — 2026
+**Problem:** SQLite on Render free tier uses ephemeral disk storage — all data is lost on every deploy or instance restart. Free PostgreSQL tier also expires after 90 days.
+**Decision:** Migrated to Render paid PostgreSQL (`DATABASE_URL` env var). All SQL uses `%s` placeholders (psycopg2) and explicit cursor objects — `con.execute()` is not valid in psycopg2. `init_db()` uses `ADD COLUMN IF NOT EXISTS` so it is safe to re-run on an existing database.
+**Why:** Persistent storage is a hard requirement for a production sales tool. SQLite ephemeral disk means every Render deploy wipes all saved sketches.
+**Pattern:** Never use `con.execute()` — always `cur = con.cursor(); cur.execute(...); con.commit(); cur.close(); con.close()`.
+
+---
+
+### Share-code feature — 2026
+**Problem:** Sellers need to share a read-only view of a sketch with customers or colleagues without requiring an API key or account.
+**Decision:** A 6-char uppercase alphanumeric code is generated on demand (POST `/api/sketches/{id}/share`, requires API key) and stored in the `share_code` column. The public read endpoint (`GET /public/{code}`, no auth) returns the sketch data. The frontend enforces read-only mode via `state.readOnly = true` + `applyReadOnly()`, which hides all edit UI and adds a fixed banner. The `onMD()` handler returns early if `state.readOnly`, so no drag/edit is possible even via keyboard or mouse.
+**Why:** Backend enforcement would require a separate auth system. Frontend-only enforcement is sufficient here since the public endpoint only exposes the data — it cannot write. Customers see a clean view; sellers use the same app with full edit access.
+**Pattern:** The `/public/{code}` endpoint is intentionally outside `/api/` (no auth middleware). Read-only mode must be set via `state.readOnly = true` before calling `applyReadOnly()` — the banner and hidden UI are permanent for the session.
+
+---
+
+### Thumbnail JPEG instead of PNG — 2026
+**Problem:** `canvas.toDataURL('image/png', 0.4)` ignores the quality parameter — PNG is always lossless, making thumbnails 200–500 KB each (base64), which fills PostgreSQL 1 GB storage quickly.
+**Decision:** Changed to `canvas.toDataURL('image/jpeg', 0.4)` — JPEG with 40% quality reduces thumbnails to ~20–50 KB each (~10× smaller).
+**Why:** 1 GB PostgreSQL storage supports ~2,000 sketches at 500 KB/thumbnail (PNG) but ~20,000+ at 50 KB/thumbnail (JPEG). JPEG thumbnails are display-only and do not need to be lossless.
+**Pattern:** Always use `image/jpeg` with a quality parameter for thumbnails. The quality parameter is silently ignored for PNG.
+
+---
+
 ### All R2 assets proxied via /r2/ — 2026
 **Problem:** Direct browser fetches from Cloudflare R2 trigger CORS errors, and taint the canvas making `toDataURL()` fail during PDF export.
 **Decision:** `app.py` exposes `/r2/<filename>` which fetches from R2 server-side and streams the result to the browser. All GLBs and sign PNGs go through this proxy.

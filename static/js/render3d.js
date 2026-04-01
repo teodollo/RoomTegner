@@ -772,9 +772,18 @@ const scene3d = (() => {
     );
     face.position.z = 0.005;
 
+    // Back face — same texture, rotated 180° so it appears correct (not mirrored) from behind
+    const backFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(sz, sz),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide })
+    );
+    backFace.position.z = -0.005;
+    backFace.rotation.y = Math.PI;
+
     const group = new THREE.Group();
     group.add(frame);
     group.add(face);
+    group.add(backFace);
 
     // Place sign on inner wall surface.
     // wi.wx/wz is on the polygon boundary = inner wall face (walls are pushed outward by WALL_THICK/2

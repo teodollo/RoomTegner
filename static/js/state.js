@@ -92,7 +92,7 @@ function toJSON() {
 
 function fromJSON(d) {
   state.roomMode = d.roomMode || 'free';
-  state.roomW = d.roomW || 6; state.roomD = d.roomD || 4; state.roomH = d.roomH || 2.8;
+  state.roomW = d.roomW || 6; state.roomD = d.roomD || 4; state.roomH = d.roomH || 3.3;
   state.poly = d.poly || []; state.polyDone = d.polyDone || false;
   state.polyDraw = d.polyDraw || false;
   state.items = (d.items || []).map(it => {

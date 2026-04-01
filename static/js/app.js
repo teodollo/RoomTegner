@@ -377,7 +377,7 @@ function setRoomMode(m) {
 function updateRect() {
   state.roomW = +document.getElementById('rW').value || 6;
   state.roomD = +document.getElementById('rD').value || 4;
-  state.roomH = +document.getElementById('rH').value || 2.8;
+  state.roomH = +document.getElementById('rH').value || 3.3;
   calcPPM(); render();
 }
 

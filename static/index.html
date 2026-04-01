@@ -176,6 +176,19 @@
       <span style="font-size:10px;color:#aaa;white-space:nowrap">H: <span id="skilt3d-h-lbl">1.50m</span></span>
     </div>
 
+    <!-- Camera angle compass — shown only in 3D view, bottom-left -->
+    <div id="cam-compass" style="display:none">
+      <button class="cc-btn" onclick="scene3d.setAngle('iso-nw')" title="Isometrisk NV">↖</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('front')"  title="Fremvegg">↑</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('iso-ne')" title="Isometrisk NØ">↗</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('side-l')" title="Venstrevegg">←</button>
+      <button class="cc-btn cc-top" onclick="scene3d.setAngle('top')" title="Ovenfra">⊙</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('side-r')" title="Høyrevegg">→</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('iso-sw')" title="Isometrisk SV">↙</button>
+      <button class="cc-btn cc-reset" onclick="scene3d.setAngle('iso-ne')" title="Tilbakestill">⌂</button>
+      <button class="cc-btn" onclick="scene3d.setAngle('iso-se')" title="Isometrisk SØ">↘</button>
+    </div>
+
     <div class="ctb" id="tb2d">
       <button class="ct act" id="tmove" onclick="setTool('move')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg> Flytt</button>
       <button class="ct" id="trotate" onclick="setTool('rotate')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Roter</button>

@@ -250,8 +250,24 @@ const scene3d = (() => {
     currentAngle = a;
     if (!camera) return;
     const { cx, cz, radius, H } = getRoomOrbitParams();
+
+    // Per-angle radius: side/front views use the perpendicular room dimension so
+    // narrow rooms (e.g. 2m × 10m) get a tight framing instead of zooming out to max(W,D).
+    let r = radius;
+    if (state.roomMode === 'rect') {
+      const rW = state.roomW, rD = state.roomD;
+      if (a === 'side-l' || a === 'side-r') r = rW * 2.2;
+      else if (a === 'front')               r = rD * 2.2;
+    } else if (state.poly && state.poly.length > 0) {
+      const xs = state.poly.map(p => p.x), zs = state.poly.map(p => p.y);
+      const xSpan = Math.max(...xs) - Math.min(...xs);
+      const zSpan = Math.max(...zs) - Math.min(...zs);
+      if (a === 'side-l' || a === 'side-r') r = xSpan * 2.2;
+      else if (a === 'front')               r = zSpan * 2.2;
+    }
+
     orbit.target.set(cx, H * 0.35, cz);
-    orbit.radius = radius;
+    orbit.radius = r;
     const angles = {
       'iso-ne': [Math.PI*0.35, Math.PI*0.30],
       'iso-nw': [-Math.PI*0.35, Math.PI*0.30],

@@ -1071,7 +1071,7 @@ function setView(v, btn) {
   document.getElementById('bgGrid').style.display = v === '2d' ? 'block' : 'none';
   document.getElementById('tb2d').style.display = v === '2d' ? 'flex' : 'none';
   const compass = document.getElementById('cam-compass');
-  if (compass) compass.style.display = v === '3d' ? 'grid' : 'none';
+  if (compass) compass.style.display = v === '3d' ? 'block' : 'none';
   if (v === '3d') {
     if (!scene3d._initialized) scene3d.init();
     // Always resize — canvas was hidden during eager init so renderer may be

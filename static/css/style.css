@@ -159,9 +159,29 @@ header { display: flex; align-items: center; gap: 10px; padding: 0 16px; height:
 /* ── Camera compass widget (3D only, bottom-left) ─────────────────────── */
 #cam-compass {
   position: absolute; bottom: 14px; left: 14px; z-index: 20;
+  pointer-events: auto;
+}
+.cc-trigger {
+  width: 44px; height: 44px; border: none; border-radius: 10px;
+  background: rgba(28,26,24,0.72); color: #f0ede8; font-size: 22px;
+  cursor: pointer; backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.13s;
+}
+.cc-trigger:hover { background: rgba(50,48,46,0.88); }
+.cc-grid {
+  position: absolute; bottom: 44px; left: 0; padding-bottom: 8px;
   display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px);
   gap: 3px; background: rgba(28,26,24,0.72); border-radius: 10px; padding: 5px;
-  backdrop-filter: blur(6px); pointer-events: auto;
+  backdrop-filter: blur(6px);
+  opacity: 0; pointer-events: none;
+  transform: scale(0.85) translateY(6px);
+  transform-origin: bottom left;
+  transition: opacity 0.15s, transform 0.15s;
+}
+#cam-compass:hover .cc-grid {
+  opacity: 1; pointer-events: auto;
+  transform: scale(1) translateY(0);
 }
 .cc-btn {
   width: 44px; height: 44px; border: none; border-radius: 7px;

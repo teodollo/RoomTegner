@@ -176,17 +176,20 @@
       <span style="font-size:10px;color:#aaa;white-space:nowrap">H: <span id="skilt3d-h-lbl">1.50m</span></span>
     </div>
 
-    <!-- Camera angle compass — shown only in 3D view, bottom-left -->
+    <!-- Camera angle compass — collapsed to trigger button, expands on hover -->
     <div id="cam-compass" style="display:none">
-      <button class="cc-btn" onclick="scene3d.setAngle('iso-nw')" title="Isometrisk NV">↖</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('front')"  title="Fremvegg">↑</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('iso-ne')" title="Isometrisk NØ">↗</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('side-l')" title="Venstrevegg">←</button>
-      <button class="cc-btn cc-top" onclick="scene3d.setAngle('top')" title="Ovenfra">⊙</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('side-r')" title="Høyrevegg">→</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('iso-sw')" title="Isometrisk SV">↙</button>
-      <button class="cc-btn cc-reset" onclick="scene3d.setAngle('iso-ne')" title="Tilbakestill">⌂</button>
-      <button class="cc-btn" onclick="scene3d.setAngle('iso-se')" title="Isometrisk SØ">↘</button>
+      <button class="cc-trigger" title="Kameravisning">⊕</button>
+      <div class="cc-grid">
+        <button class="cc-btn" onclick="scene3d.setAngle('iso-nw')" title="Isometrisk NV">↖</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('front')"  title="Fremvegg">↑</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('iso-ne')" title="Isometrisk NØ">↗</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('side-l')" title="Venstrevegg">←</button>
+        <button class="cc-btn cc-top" onclick="scene3d.setAngle('top')" title="Ovenfra">⊙</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('side-r')" title="Høyrevegg">→</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('iso-sw')" title="Isometrisk SV">↙</button>
+        <button class="cc-btn cc-reset" onclick="scene3d.setAngle('iso-ne')" title="Tilbakestill">⌂</button>
+        <button class="cc-btn" onclick="scene3d.setAngle('iso-se')" title="Isometrisk SØ">↘</button>
+      </div>
     </div>
 
     <div class="ctb" id="tb2d">

@@ -295,6 +295,14 @@ These patterns are derived from the Decision Log. The full context is there — 
 
 ---
 
+### Hover tooltip — glassmorfisme infoboble — 2026-04
+**Problem:** 3D-visningen var helstatisk — brukere fikk ingen informasjon om utstyr uten å klikke og lese høyrepanelet.
+**Decision:** Raycaster throttles 1×/4 frames mot `_itemMeshMap`. Hover viser en glassmorfisme-boble over objektets topp (projisert via `vector.project(camera)` → CSS left/top på absolutt-posisjonert div i `#cw`). Hide-delay 300ms forhindrer flimring når musen beveger seg mot der boblen vises. Walk mode bruker NDC (0,0) = skjermsentrum som raycast-origine; boble forankres over krysshåret.
+**Why:** CSS2DRenderer ble ikke brukt — ikke tilgjengelig i bundlet three.min.js r128. Ren HTML/CSS gir full kontroll over glassmorfisme-stilen og skarpt tekst uten ekstra Three.js render-pass.
+**Pattern:** `_tooltipDiv` injiseres i `init()` og er barn av `container` (#cw). Tooltip-kode bruker kun eksisterende `_drag3dRaycaster`, `_itemMeshMap`, og `camera` — ingen nye Three.js-objekter allokeres per frame. `state._pdfExporting` + `_tooltipDiv.style.display = 'none'` i `captureTopDown()` sikrer at boblen aldri vises i PDF-eksport.
+
+---
+
 ## Live URL
 https://roomtegner.onrender.com
 

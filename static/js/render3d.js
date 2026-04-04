@@ -85,6 +85,16 @@ const scene3d = (() => {
   const _drag3dHitVec     = new THREE.Vector3();
   const _drag3dMouseNDC   = new THREE.Vector2();
 
+  // ── Walk mode info-tooltip state ──────────────────────────────────────────
+  // Tooltip vises kun i walk mode via venstre klikk (ikke i orbit mode).
+  let _tooltipDiv         = null;
+  let _tooltipVisible     = false;
+  let _tooltipLastItemId  = null;
+  let _tooltipHideTimer   = null;
+  let _walkCrosshairItemId = null; // item-id krysshåret peker på (null = ingenting)
+  let _walkHintFrames      = 0;    // throttle-teller for krysshår-raycasting
+  let _walkHintTimer       = null; // setTimeout for forsinket visning av hint
+
   function initOrbit() {
     const el = renderer.domElement;
     let didDrag = false;
@@ -143,6 +153,7 @@ const scene3d = (() => {
         case '-': e.preventDefault(); orbit.radius = Math.min(40, orbit.radius + 0.8); updateOrbitCamera(); break;
       }
     });
+
   }
 
   // ── 3D object drag ──────────────────────────────────────────────────────────
@@ -262,6 +273,8 @@ const scene3d = (() => {
           hud.style.pointerEvents = 'none';
           hud.style.cursor = '';
         }
+        const _ch = document.getElementById('r3d-walk-crosshair');
+        if (_ch) _ch.style.display = 'block';
         rebuild(); // adds ceiling + ceiling lights for walk mode
       } else {
         // Lock lost (Escape or document.exitPointerLock()) — exit walk cleanly
@@ -293,6 +306,20 @@ const scene3d = (() => {
     document.addEventListener('keyup', e => {
       if (!walk.active) return;
       walk.keysHeld[e.key] = false;
+    });
+
+    // Venstre klikk i walk mode: vis/skjul infoboble for utstyr man ser på (krysshår = NDC 0,0).
+    // Klikk på samme objekt igjen → toggle (skjul). Klikk på tomt → skjul.
+    el.addEventListener('mousedown', e => {
+      if (!walk.active || e.button !== 0) return;
+      _drag3dRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      const hits = _drag3dRaycaster.intersectObjects(_itemMeshMap.map(en => en.mesh), true);
+      if (!hits.length) { _hideTooltipNow(); return; }
+      let entry = null, o = hits[0].object;
+      while (o) { entry = _itemMeshMap.find(en => en.mesh === o); if (entry) break; o = o.parent; }
+      if (!entry) { _hideTooltipNow(); return; }
+      if (_tooltipLastItemId === entry.item.id && _tooltipVisible) { _hideTooltipNow(); return; }
+      _showWalkTooltip(entry.item);
     });
   }
 
@@ -378,9 +405,92 @@ const scene3d = (() => {
     walk.keysHeld = {};
     state.walkMode = false;
     _showWalkHUD(false);
+    const _ch = document.getElementById('r3d-walk-crosshair');
+    if (_ch) _ch.style.display = 'none';
+    _hideTooltipNow(); // skjul umiddelbart ved walk-exit
+    _walkCrosshairItemId = null;
+    if (_walkHintTimer) { clearTimeout(_walkHintTimer); _walkHintTimer = null; }
+    const _hintEl = document.getElementById('r3d-walk-hint');
+    if (_hintEl) { _hintEl.classList.remove('visible'); _hintEl.style.display = 'none'; }
     rebuild(); // removes ceiling + ceiling lights now that walk mode is off
     // Restore orbit camera (orbit state was never touched by walk mode)
     if (camera) updateOrbitCamera();
+  }
+
+  // ── Walk mode info-tooltip ────────────────────────────────────────────────
+  // Aktiveres kun via venstre klikk i walk mode. Orbit mode har ingen tooltip.
+
+  function _hideTooltipNow() {
+    if (_tooltipHideTimer) { clearTimeout(_tooltipHideTimer); _tooltipHideTimer = null; }
+    if (!_tooltipDiv) return;
+    _tooltipDiv.classList.remove('visible');
+    _tooltipVisible = false;
+    _tooltipLastItemId = null;
+  }
+
+  function _showWalkTooltip(item) {
+    if (!_tooltipDiv) return;
+    _tooltipDiv.innerHTML = _buildTooltipHTML(item);
+    _tooltipLastItemId = item.id;
+
+    // Forankre alltid ved krysshåret (skjermsentrum) — unngår buggy posisjonering
+    // når toppen av objektet er utenfor viewport.
+    const el = renderer.domElement;
+    _tooltipDiv.style.left      = (el.clientWidth  / 2) + 'px';
+    _tooltipDiv.style.top       = (el.clientHeight / 2 - 30) + 'px';
+    _tooltipDiv.style.transform = 'translateX(-50%) translateY(-100%)';
+
+    if (!_tooltipVisible) { _tooltipDiv.classList.add('visible'); _tooltipVisible = true; }
+  }
+
+  function _buildTooltipHTML(item) {
+    const def  = item.def;
+    const name = def.name || def.id || '?';
+    const dims = `${def.W}\u202f\u00d7\u202f${def.D}\u202f\u00d7\u202f${def.H}\u202fmm`;
+    const esc  = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="tt-name">${esc(name)}</div><div class="tt-spec">${esc(dims)}</div>`;
+  }
+
+  // Kjøres throttlet fra animate() i walk mode.
+  // 1) Raycast fra skjermsentrum — finn item under krysshåret.
+  // 2) Auto-skjul tooltip hvis krysshåret har forlatt det viste objektet.
+  // 3) Vis/skjul "klikk for info"-hint (forsinket 350ms for å unngå flimring).
+  function _updateWalkCrosshair() {
+    _drag3dRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = _drag3dRaycaster.intersectObjects(_itemMeshMap.map(e => e.mesh), true);
+
+    let hitId = null;
+    if (hits.length) {
+      let o = hits[0].object;
+      let entry = null;
+      while (o) { entry = _itemMeshMap.find(e => e.mesh === o); if (entry) break; o = o.parent; }
+      if (entry) hitId = entry.item.id;
+    }
+
+    // Auto-skjul tooltip hvis krysshåret har forlatt objektet
+    if (_tooltipVisible && _tooltipLastItemId !== hitId) _hideTooltipNow();
+
+    // Oppdater hint — vis kun når krysshåret er over et objekt og tooltip ikke er synlig
+    const hintEl = document.getElementById('r3d-walk-hint');
+    if (hintEl) {
+      if (hitId && !_tooltipVisible) {
+        hintEl.style.display = 'block';
+        if (hitId !== _walkCrosshairItemId) {
+          // Nytt objekt: start forsinket fade-in (unngår flimring ved passering)
+          if (_walkHintTimer) { clearTimeout(_walkHintTimer); _walkHintTimer = null; }
+          hintEl.classList.remove('visible');
+          _walkHintTimer = setTimeout(() => { hintEl.classList.add('visible'); _walkHintTimer = null; }, 350);
+        }
+      } else {
+        // Ingen objekt eller tooltip synlig: skjul hint umiddelbart
+        if (_walkHintTimer) { clearTimeout(_walkHintTimer); _walkHintTimer = null; }
+        hintEl.classList.remove('visible');
+        // Skjul display etter CSS-transition (200ms)
+        setTimeout(() => { if (!_walkCrosshairItemId || _tooltipVisible) hintEl.style.display = 'none'; }, 220);
+      }
+    }
+
+    _walkCrosshairItemId = hitId;
   }
 
   function trySelectSkilt(e) {
@@ -489,6 +599,66 @@ const scene3d = (() => {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
+    // ── Tooltip DOM + CSS ─────────────────────────────────────────────────────
+    // Injisert her (ikke i index.html) for å holde funksjonen self-contained i render3d.js.
+    // Guard på id gjør det trygt å kalle init() flere ganger.
+    if (!document.getElementById('r3d-tooltip-styles')) {
+      const s = document.createElement('style');
+      s.id = 'r3d-tooltip-styles';
+      s.textContent = `
+        #r3d-tooltip {
+          position:absolute; pointer-events:none; z-index:25;
+          padding:10px 14px; border-radius:12px;
+          background:rgba(20,20,28,0.72);
+          backdrop-filter:blur(18px) saturate(140%);
+          -webkit-backdrop-filter:blur(18px) saturate(140%);
+          border:1px solid rgba(255,255,255,0.14);
+          box-shadow:0 6px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08);
+          font-family:inherit; line-height:1.5;
+          white-space:nowrap; max-width:240px;
+          opacity:0; transition:opacity 0.18s ease;
+          transform:translateX(-50%) translateY(-100%);
+        }
+        #r3d-tooltip.visible { opacity:1; }
+        #r3d-tooltip .tt-name { font-size:13px; font-weight:700; color:#fff; margin-bottom:3px; }
+        #r3d-tooltip .tt-spec { font-size:11px; font-weight:500; color:rgba(200,210,225,0.85); letter-spacing:0.2px; }
+        #r3d-walk-crosshair {
+          position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+          width:18px; height:18px; pointer-events:none; z-index:28; display:none; opacity:0.6;
+        }
+        #r3d-walk-crosshair::before,#r3d-walk-crosshair::after {
+          content:''; position:absolute; background:rgba(255,255,255,0.85);
+        }
+        #r3d-walk-crosshair::before { width:2px; height:18px; left:8px; top:0; }
+        #r3d-walk-crosshair::after  { width:18px; height:2px; top:8px; left:0; }
+        #r3d-walk-hint {
+          position:absolute; left:50%; top:calc(50% + 20px);
+          transform:translateX(-50%);
+          pointer-events:none; z-index:28; display:none;
+          padding:4px 10px; border-radius:20px;
+          background:rgba(0,0,0,0.52);
+          border:1px solid rgba(255,255,255,0.18);
+          font-family:inherit; font-size:11px; font-weight:600;
+          color:#fff; letter-spacing:0.3px; white-space:nowrap;
+          opacity:0; transition:opacity 0.2s ease;
+        }
+        #r3d-walk-hint.visible { opacity:1; }
+      `;
+      document.head.appendChild(s);
+    }
+    // Tooltip og crosshair er barn av #cw (position:relative) — absolute-posisjonering
+    // blir dermed relativt til canvas-wrapperens hjørne uten ekstra offset-kalkyle.
+    _tooltipDiv = document.createElement('div');
+    _tooltipDiv.id = 'r3d-tooltip';
+    container.appendChild(_tooltipDiv);
+    const _walkCrosshair = document.createElement('div');
+    _walkCrosshair.id = 'r3d-walk-crosshair';
+    container.appendChild(_walkCrosshair);
+    const _walkHintEl = document.createElement('div');
+    _walkHintEl.id = 'r3d-walk-hint';
+    _walkHintEl.textContent = 'klikk for info';
+    container.appendChild(_walkHintEl);
+
     // Camera
     // 58° matches what RoomSketcher / Planner 5D use — wider than the original 45°
     // so the room feels photographic rather than toy-like.
@@ -534,6 +704,14 @@ const scene3d = (() => {
     requestAnimationFrame(animate);
     if (_dirty) { _doRebuild(); _dirty = false; }
     if (walk.active) _walkUpdateCamera(); // FPS camera update — only runs in walk mode
+
+    if (state.view !== '3d' && _tooltipVisible) _hideTooltipNow();
+
+    // Throttlet krysshår-raycasting i walk mode (1×/4 frames ≈ 67ms)
+    if (walk.active) {
+      if (++_walkHintFrames >= 4) { _walkHintFrames = 0; _updateWalkCrosshair(); }
+    }
+
     renderer.render(scene, camera);
   }
 
@@ -1904,8 +2082,14 @@ const scene3d = (() => {
     // up=(0,0,-1) so low-Z (top of 2D canvas) maps to top of image
     cam.up.set(0, 0, -1);
 
+    // Skjul tooltip-overlay under capture — det er et DOM-lag over canvas og skal ikke
+    // påvirke WebGL-rendringen, men eksplisitt skjuling dokumenterer intensjonen.
+    if (_tooltipDiv) _tooltipDiv.style.display = 'none';
+
     renderer.render(scene, cam);
     const dataUrl = renderer.domElement.toDataURL('image/png');
+
+    if (_tooltipDiv) _tooltipDiv.style.display = '';
 
     // Restore renderer to previous size so the live 3D view is unaffected
     renderer.setSize(prevW, prevH);

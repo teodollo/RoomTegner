@@ -260,15 +260,24 @@ const scene3d = (() => {
   // ── Walk mode input setup ─────────────────────────────────────────────────
   // Called once from init(). Sets up Pointer Lock + mouse-look + key-held tracking.
   // All handlers guard on walk.active so they are silent outside walk mode.
+
+  // Flag: true when an overlay (datablad) has intentionally released Pointer Lock
+  // without wanting to exit walk mode. Prevents _exitWalkMode() from running.
+  let _walkPausedForOverlay = false;
+
   function initWalk() {
     const el = renderer.domElement;
 
     // Pointer Lock lifecycle
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === el) {
-        // Lock acquired — walk is now fully active
+        // Lock acquired — start or resume walk mode.
+        // Only call rebuild() on a fresh entry (not when resuming from overlay pause),
+        // to avoid rebuilding ceiling/lights that are already in the scene.
+        const freshEntry = !state.walkMode;
         walk.active = true;
         state.walkMode = true;
+        walk.lastTime = performance.now();
         const hud = document.getElementById('walk-hud');
         if (hud) {
           hud.textContent = 'WASD / Piltaster = beveg  ·  Mus = se rundt  ·  Esc = avslutt';
@@ -277,10 +286,21 @@ const scene3d = (() => {
         }
         const _ch = document.getElementById('r3d-walk-crosshair');
         if (_ch) _ch.style.display = 'block';
-        rebuild(); // adds ceiling + ceiling lights for walk mode
+        if (freshEntry) rebuild(); // adds ceiling + ceiling lights for walk mode
+        // Remove the read-only cover now that walk mode is live.
+        const _cov = document.getElementById('r3d-cover');
+        if (_cov) _cov.style.display = 'none';
       } else {
-        // Lock lost (Escape or document.exitPointerLock()) — exit walk cleanly
-        _exitWalkMode();
+        if (_walkPausedForOverlay) {
+          // Intentional release for overlay — keep walk mode state, just pause input.
+          // _exitWalkMode() must NOT run: that would remove ceiling and reset state.walkMode.
+          walk.active = false;
+          walk.keysHeld = {};
+          _walkPausedForOverlay = false;
+        } else {
+          // Genuine exit (Esc press, browser-initiated) — full walk mode teardown.
+          _exitWalkMode();
+        }
       }
     });
 
@@ -310,8 +330,8 @@ const scene3d = (() => {
       walk.keysHeld[e.key] = false;
     });
 
-    // Venstre klikk i walk mode: vis/skjul infoboble for utstyr man ser på (krysshår = NDC 0,0).
-    // Klikk på samme objekt igjen → toggle (skjul). Klikk på tomt → skjul.
+    // Venstre klikk i walk mode: vis/skjul infoboble for objektet under krysshåret.
+    // Klikk på tomt → skjul. Klikk på samme objekt igjen → toggle (skjul).
     el.addEventListener('mousedown', e => {
       if (!walk.active || e.button !== 0) return;
       _drag3dRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -323,6 +343,65 @@ const scene3d = (() => {
       if (_tooltipLastItemId === entry.item.id && _tooltipVisible) { _hideTooltipNow(); return; }
       _showWalkTooltip(entry.item);
     });
+
+    // Høyreklikk i walk mode: åpne datablad for objektet under krysshåret.
+    // Bruker mousedown button=2 — contextmenu-event er upålitelig under Pointer Lock.
+    // pauseWalkForOverlay() frigjør Pointer Lock uten å avbryte walk mode-tilstand,
+    // slik at musen er tilgjengelig i overlayen og resume gjenoppretter walk mode.
+    el.addEventListener('mousedown', e => {
+      if (!walk.active || e.button !== 2) return;
+      _drag3dRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      const hits = _drag3dRaycaster.intersectObjects(_itemMeshMap.map(en => en.mesh), true);
+      if (!hits.length) return;
+      let entry = null, o = hits[0].object;
+      while (o) { entry = _itemMeshMap.find(en => en.mesh === o); if (entry) break; o = o.parent; }
+      if (!entry || !entry.item.def || !entry.item.def.datablad) return;
+      if (typeof window.openDatablad === 'function') {
+        window.openDatablad(entry.item.def.datablad, entry.item.def.name || entry.item.def.id);
+      }
+    });
+
+    // Orbit hover hint: vis "Høyreklikk for datablad" nær cursor i orbit-modus
+    // Throttlet 1×/4 frames for å unngå GC-press på mousemove.
+    let _orbitHoverFrames = 0;
+    let _orbitHintDiv = null;
+
+    function _showOrbitHoverHint(e) {
+      if (!_orbitHintDiv) {
+        _orbitHintDiv = document.createElement('div');
+        _orbitHintDiv.id = 'r3d-datablad-hint';
+        container.appendChild(_orbitHintDiv);
+      }
+      _orbitHintDiv.textContent = '📄 Høyreklikk for datablad';
+      const cRect = container.getBoundingClientRect();
+      _orbitHintDiv.style.left = (e.clientX - cRect.left + 14) + 'px';
+      _orbitHintDiv.style.top  = (e.clientY - cRect.top  - 10) + 'px';
+      _orbitHintDiv.classList.add('visible');
+    }
+
+    function _hideOrbitHoverHint() {
+      if (_orbitHintDiv) _orbitHintDiv.classList.remove('visible');
+    }
+
+    el.addEventListener('mousemove', e => {
+      if (walk.active || state.drag) { _hideOrbitHoverHint(); return; }
+      if (++_orbitHoverFrames < 4) return; // throttle: 1×/4 frames ≈ 67ms
+      _orbitHoverFrames = 0;
+
+      const rect = el.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  *  2 - 1,
+        -((e.clientY - rect.top)  / rect.height) *  2 + 1
+      );
+      _drag3dRaycaster.setFromCamera(mouse, camera);
+      const hits = _drag3dRaycaster.intersectObjects(_itemMeshMap.map(en => en.mesh), true);
+      if (!hits.length) { _hideOrbitHoverHint(); return; }
+      let o2 = hits[0].object, ent2 = null;
+      while (o2) { ent2 = _itemMeshMap.find(en => en.mesh === o2); if (ent2) break; o2 = o2.parent; }
+      if (!ent2 || !ent2.item.def || !ent2.item.def.datablad) { _hideOrbitHoverHint(); return; }
+      _showOrbitHoverHint(e);
+    });
+    el.addEventListener('mouseleave', _hideOrbitHoverHint);
   }
 
   // ── Walk mode helpers ─────────────────────────────────────────────────────
@@ -452,7 +531,8 @@ const scene3d = (() => {
     const name = def.name || def.id || '?';
     const dims = `${def.W}\u202f\u00d7\u202f${def.D}\u202f\u00d7\u202f${def.H}\u202fmm`;
     const esc  = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<div class="tt-name">${esc(name)}</div><div class="tt-spec">${esc(dims)}</div>`;
+    const extra = def.datablad ? `<div class="tt-datablad">📄 Høyreklikk for datablad</div>` : '';
+    return `<div class="tt-name">${esc(name)}</div><div class="tt-spec">${esc(dims)}</div>${extra}`;
   }
 
   // Kjøres throttlet fra animate() i walk mode.
@@ -626,6 +706,16 @@ const scene3d = (() => {
         #r3d-tooltip.visible { opacity:1; }
         #r3d-tooltip .tt-name { font-size:13px; font-weight:700; color:#fff; margin-bottom:3px; }
         #r3d-tooltip .tt-spec { font-size:11px; font-weight:500; color:rgba(200,210,225,0.85); letter-spacing:0.2px; }
+        #r3d-tooltip .tt-datablad { font-size:11px; color:rgba(160,210,255,.85); margin-top:5px; }
+        #r3d-datablad-hint {
+          position:absolute; pointer-events:none; z-index:30;
+          background:rgba(28,32,37,.88); color:#c8d2dc;
+          border:1px solid #3a4048; border-radius:5px;
+          padding:4px 9px; font-size:11px; font-weight:500;
+          white-space:nowrap;
+          opacity:0; transition:opacity 0.15s ease;
+        }
+        #r3d-datablad-hint.visible { opacity:1; }
         #r3d-walk-crosshair {
           position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
           width:18px; height:18px; pointer-events:none; z-index:28; display:none; opacity:0.6;
@@ -2035,7 +2125,7 @@ const scene3d = (() => {
     const step = 0.05;
     if (it.wallH === undefined) it.wallH = 1.6;
     if (it.wallOffset === undefined) it.wallOffset = 0;
-    if (dir === 'up')    it.wallH      += step;
+    if (dir === 'up')    it.wallH      = Math.min(it.wallH + step, state.roomH - (it.size || 0.4) / 2);
     if (dir === 'down')  it.wallH      = Math.max(0.05, it.wallH - step);
     if (dir === 'left')  it.wallOffset -= step;
     if (dir === 'right') it.wallOffset += step;
@@ -2144,5 +2234,44 @@ const scene3d = (() => {
     });
   }
 
-  return { init, rebuild, rebuildSync, preloadItemGLBs, setAngle, resize, markDirty, nudgeSkilt, captureTopDown, preloadAll, enterWalkMode, exitWalkMode: _exitWalkMode, get _initialized() { return initialized; } };
+  // Pauses Pointer Lock without exiting walk mode — called when an overlay (datablad)
+  // needs free mouse access. Sets _walkPausedForOverlay so pointerlockchange skips
+  // _exitWalkMode(), preserving state.walkMode and the ceiling/light scene layout.
+  function pauseWalkForOverlay() {
+    if (!walk.active) return;
+    _walkPausedForOverlay = true;
+    document.exitPointerLock();
+  }
+
+  // Resumes walk mode after an overlay closes by re-requesting Pointer Lock.
+  // Must be called from a user gesture (click or keydown) for the browser to grant it.
+  function resumeWalkFromOverlay() {
+    if (!state.walkMode || !renderer) return;
+    renderer.domElement.requestPointerLock();
+  }
+
+  // Raycasts against _itemMeshMap at the mouse position of event e.
+  // Returns the item (state item object) or null. Used by app.js for right-click context menu.
+  function getItemAtEvent(e) {
+    if (!renderer) return null;
+    const el   = renderer.domElement;
+    const rect = el.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width)  *  2 - 1,
+      -((e.clientY - rect.top)  / rect.height) *  2 + 1
+    );
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(mouse, camera);
+    const hits = rc.intersectObjects(_itemMeshMap.map(en => en.mesh), true);
+    if (!hits.length) return null;
+    let o = hits[0].object;
+    while (o) {
+      const entry = _itemMeshMap.find(en => en.mesh === o);
+      if (entry) return entry.item;
+      o = o.parent;
+    }
+    return null;
+  }
+
+  return { init, rebuild, rebuildSync, preloadItemGLBs, setAngle, resize, markDirty, nudgeSkilt, captureTopDown, preloadAll, enterWalkMode, exitWalkMode: _exitWalkMode, getItemAtEvent, pauseWalkForOverlay, resumeWalkFromOverlay, get _initialized() { return initialized; } };
 })();

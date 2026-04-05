@@ -24,7 +24,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # Allow /r2/ assets (PDFs, GLBs) to be framed by the same origin so
+        # the datablad overlay can embed them in an <iframe>.
+        if request.url.path.startswith("/r2/"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
@@ -32,7 +37,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob: https://pub-27fd45166dba4be8a488b48df57742df.r2.dev https://www.grontpunkt.no; "
             "connect-src 'self' blob:; "
-            "worker-src blob:;"
+            "worker-src blob:; "
+            # blob: needed for the datablad PDF iframe (openDatablad() fetches PDF → creates blob: URL)
+            "frame-src blob: 'self';"
         )
         return response
 
@@ -224,7 +231,13 @@ async def proxy_r2(filename: str, v: str = ""):
     cache_key = f"{filename}:{v}"
     # Assets are immutable for a given v= param — cache aggressively in the browser.
     # Bumping v= in the frontend forces a fresh fetch, bypassing both this cache and the browser.
-    cache_headers = {"Cache-Control": "public, max-age=86400"}
+    # PDFs must be served inline so the browser renders them inside the <iframe>
+    # rather than triggering a download. GLBs and images need no disposition header.
+    is_pdf = filename.lower().endswith(".pdf")
+    cache_headers = {
+        "Cache-Control": "public, max-age=86400",
+        **({"Content-Disposition": "inline"} if is_pdf else {}),
+    }
     if cache_key in _r2_cache:
         data, content_type = _r2_cache[cache_key]
         return Response(content=data, media_type=content_type, headers=cache_headers)

@@ -297,7 +297,7 @@ function placePendingSkiltOnContainer(container) {
   // Remove any existing linked skilt for this container
   state.items = state.items.filter(s => !(s.kind === 'skilt' && s._linkedTo === container.id));
   const skiltSizeM = Math.min(Math.max((container.def.W / 1000) * 0.70, 0.25), 0.65);
-  const skiltH = binH > (1.6 - skiltSizeM / 2) ? binH + skiltSizeM / 2 + 0.05 : 1.6;
+  const skiltH = Math.min(binH > (1.6 - skiltSizeM / 2) ? binH + skiltSizeM / 2 + 0.05 : 1.6, state.roomH - skiltSizeM / 2);
   state.items.push({
     id: state.nextId++, typeId: ps.id, kind: 'skilt',
     def: ps.def, x: container.x, y: container.y, rot: 0, size: skiltSizeM,
@@ -729,7 +729,65 @@ function setupEvents() {
   c.addEventListener('dblclick', onDbl);
   document.addEventListener('keydown', onKey);
   c.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
-  c.addEventListener('contextmenu', e => e.preventDefault());
+  // 2D canvas context menu — right-click on item with datablad opens it directly
+  c.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (state.view !== '2d') return;
+    const item = _itemAt2D(e);
+    if (item && item.def && item.def.datablad) openDatablad(item.def.datablad, item.def.name);
+  });
+  // 3D canvas context menu — same, raycasting via scene3d
+  document.getElementById('cw').addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (state.view !== '3d' || state.walkMode) return;
+    const item = scene3d.getItemAtEvent(e);
+    if (item && item.def && item.def.datablad) openDatablad(item.def.datablad, item.def.name);
+  });
+  // 2D cursor + hover hint: change cursor and show floating hint when hovering over
+  // items with datablad. Only activates in default-cursor state.
+  const _hint2d = (() => {
+    const d = document.createElement('div');
+    d.id = 'hint-2d-datablad';
+    d.textContent = '📄 Høyreklikk for datablad';
+    document.body.appendChild(d);
+    return d;
+  })();
+  c.addEventListener('mousemove', e => {
+    if (state.view !== '2d' || state.spaceDown || state.panning) {
+      _hint2d.classList.remove('visible'); return;
+    }
+    if (state.polyDraw || state.tool === 'innerwall' || state.pendingContainer || state.pendingSkilt) {
+      _hint2d.classList.remove('visible'); return;
+    }
+    const item = _itemAt2D(e);
+    if (item && item.def && item.def.datablad) {
+      c.style.cursor = 'context-menu';
+      _hint2d.style.left = (e.clientX + 14) + 'px';
+      _hint2d.style.top  = (e.clientY - 10) + 'px';
+      _hint2d.classList.add('visible');
+    } else {
+      if (c.style.cursor === 'context-menu') c.style.cursor = '';
+      _hint2d.classList.remove('visible');
+    }
+  });
+  c.addEventListener('mouseleave', () => _hint2d.classList.remove('visible'));
+  // Datablad overlay close
+  document.getElementById('datablad-close').addEventListener('click', _closeDatablad);
+  document.getElementById('datablad-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) _closeDatablad();
+  });
+  document.getElementById('datablad-overlay').addEventListener('contextmenu', e => e.preventDefault());
+  // Escape closes datablad overlay before anything else (capture phase).
+  // stopImmediatePropagation ensures onKey() does not also run (which would deselect items).
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const overlay = document.getElementById('datablad-overlay');
+    if (overlay && overlay.classList.contains('open')) {
+      _closeDatablad();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+  }, true); // capture: true — fires before all bubble-phase listeners
   c.addEventListener('wheel', onWheel, { passive: false });
   document.addEventListener('keydown', e => {
     if (state.walkMode) return; // walk mode owns keys
@@ -741,6 +799,73 @@ function setupEvents() {
     if (e.key === 'Shift') state.shiftDown = false;
     if (e.key === ' ') { state.spaceDown = false; if (!state.panning) c.style.cursor = ''; }
   });
+}
+
+// ── Datablad ─────────────────────────────────────────────────────────────
+
+// Opens the game-map style PDF overlay.
+// In walk mode: pauses Pointer Lock without exiting walk mode, so mouse is free
+// and walk mode resumes automatically when the overlay closes.
+// PDF is fetched as a Blob and loaded via blob: URL — bypasses X-Frame-Options entirely
+// and guarantees application/pdf Content-Type regardless of server headers.
+async function openDatablad(filename, itemName) {
+  if (state.walkMode) scene3d.pauseWalkForOverlay();
+
+  const overlay = document.getElementById('datablad-overlay');
+  const iframe  = document.getElementById('datablad-iframe');
+  const title   = document.getElementById('datablad-title');
+  title.textContent = (itemName || 'Utstyr') + ' — Datablad';
+
+  // Revoke previous blob URL to free memory
+  if (iframe._blobUrl) { URL.revokeObjectURL(iframe._blobUrl); iframe._blobUrl = null; }
+  iframe.src = '';
+  overlay.classList.add('open');
+
+  try {
+    const resp = await fetch('/r2/' + encodeURIComponent(filename));
+    if (!resp.ok) throw new Error(resp.status);
+    const blob = await resp.blob();
+    // Force application/pdf so the browser renders inline regardless of server Content-Type
+    const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+    const url = URL.createObjectURL(pdfBlob);
+    iframe._blobUrl = url;
+    iframe.src = url;
+  } catch {
+    // iframe will show its own error state; overlay stays open so user can close it
+  }
+}
+
+function _closeDatablad() {
+  const overlay = document.getElementById('datablad-overlay');
+  if (!overlay || !overlay.classList.contains('open')) return;
+  overlay.classList.remove('open');
+  const iframe = document.getElementById('datablad-iframe');
+  if (iframe._blobUrl) { URL.revokeObjectURL(iframe._blobUrl); iframe._blobUrl = null; }
+  iframe.src = '';
+  // Resume walk mode if it was paused — requestPointerLock() needs a user gesture,
+  // and _closeDatablad() is always called from a click or keydown, so this is valid.
+  if (scene3d._initialized) scene3d.resumeWalkFromOverlay();
+}
+
+// Hit-test for 2D canvas: returns the item under canvas mouse event e, or null.
+// Uses room coordinates derived from canvas pixel coords via getO()/getPPM().
+// Rotation is not accounted for — uses axis-aligned bounding box, sufficient for context menu.
+function _itemAt2D(e) {
+  const rect = document.getElementById('canvas-2d').getBoundingClientRect();
+  const dpr  = window.devicePixelRatio || 1;
+  const cx   = (e.clientX - rect.left) * dpr;
+  const cy   = (e.clientY - rect.top)  * dpr;
+  const ppm  = getPPM();
+  const o    = getO();
+  const rx   = (cx - o.ox) / ppm;
+  const ry   = (cy - o.oy) / ppm;
+  return state.items.find(it => {
+    if (!it.def || (it.kind !== 'container' && it.kind !== 'machine')) return false;
+    const hw = it.def.W / 2000;
+    const hd = it.def.D / 2000;
+    return rx >= it.x - hw && rx <= it.x + hw &&
+           ry >= it.y - hd && ry <= it.y + hd;
+  }) || null;
 }
 
 function onWheel(e) {
@@ -1237,7 +1362,13 @@ function setView(v, btn) {
     // sized to the 1200×800 fallback. Resize now that the canvas is visible.
     scene3d.resize();
     scene3d.rebuild();
-    if (state.readOnly) scene3d.enterWalkMode(); // lesevisning: kun walk mode
+    if (state.readOnly) {
+      // Cover the canvas immediately so the orbit view never flashes before walk mode.
+      // The cover is removed inside render3d.js once pointer lock is acquired.
+      const cover = document.getElementById('r3d-cover');
+      if (cover) cover.style.display = 'block';
+      scene3d.enterWalkMode();
+    }
   }
   updateSkilt3dCtrl();
   render();
@@ -1559,7 +1690,8 @@ function checkAutoSkilt(it) {
   // Small bins (140L=480mm → 0.34m sign) get smaller labels so they don't dwarf the container.
   const skiltSize = Math.min(Math.max((it.def.W / 1000) * 0.70, 0.25), 0.65);
   // Standard mounting height: 1.6m (center). Raise if machine top is above sign bottom.
-  const autoSkiltH = binH > (1.6 - skiltSize / 2) ? binH + skiltSize / 2 + 0.05 : 1.6;
+  // Never let sign top exceed wall height.
+  const autoSkiltH = Math.min(binH > (1.6 - skiltSize / 2) ? binH + skiltSize / 2 + 0.05 : 1.6, state.roomH - skiltSize / 2);
   state.items.push({
     id: state.nextId++, typeId: skiltId, kind: 'skilt',
     def, x: it.x, y: it.y, rot: 0, size: skiltSize,
@@ -1789,6 +1921,15 @@ function openSaveModal() {
 }
 function closeSaveModal() { document.getElementById('saveModal').classList.remove('open'); }
 
+// Set by exportCode() so saveSketch() calls shareSketch() after a successful save.
+let _shareAfterSave = false;
+
+// Header "Eksporter kode" button: save first (asking for name), then show share code.
+function exportCode() {
+  _shareAfterSave = true;
+  openSaveModal();
+}
+
 async function saveSketch() {
   const name = document.getElementById('saveName').value.trim() || 'Uten navn';
   const customer = document.getElementById('saveCustomer').value.trim();
@@ -1809,7 +1950,12 @@ async function saveSketch() {
     }
     closeSaveModal();
     autosave();
-    toast('Lagret ✓');
+    if (_shareAfterSave) {
+      _shareAfterSave = false;
+      await shareSketch(state.sketchId);
+    } else {
+      toast('Lagret ✓');
+    }
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Lagre';
@@ -2208,7 +2354,7 @@ function copyShareUrl() {
 // Panning and zoom still work — only editing is blocked.
 function applyReadOnly() {
   // Hide toolbar edit actions
-  ['openSaveModal', 'exportPDF', 'resetRoom', 'resetAll', 'newSketch'].forEach(fn => {
+  ['openSaveModal', 'exportPDF', 'exportCode', 'resetRoom', 'resetAll', 'newSketch'].forEach(fn => {
     document.querySelectorAll(`[onclick*="${fn}"]`).forEach(el => el.style.display = 'none');
   });
   // Hide all sidebar tabs except Rom

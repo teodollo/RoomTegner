@@ -5,24 +5,24 @@ const DEFS = [
   {id:'660L',    name:'660L',      sap:'B-0660',  W:1360, D:770,  H:1180, type:'bin-large',  wheels:4},
   {id:'KOMP400L',name:'400L Komp', sap:'',        W:770,  D:870,  H:1110, type:'bin-large',  wheels:4, glbKeepMat: true, glbExtraWrapperRot: Math.PI * 1.5},
   {id:'1000L',   name:'1000L',     sap:'B-1000',  W:1320, D:1080, H:1320, type:'bin-xl',     wheels:4},
-  {id:'BALEX',     name:'Balex 20',    sap:'', W:1840, D:1100, H:1950, type:'compactor', wheels:0},
-  {id:'BALEX10',   name:'Balex 10',    sap:'', W:1360, D:840,  H:1920, type:'compactor', wheels:0},
-  {id:'ORWAK3420', name:'Orwak 3420',  sap:'', W:1775, D:1060, H:2380, type:'machine', wheels:0, glbModelRotY: -Math.PI / 2, defaultRot: Math.PI},
+  {id:'BALEX',     name:'Balex 20',    sap:'', W:1840, D:1100, H:1950, type:'compactor', wheels:0, datablad:'balex_20_datablad.pdf'},
+  {id:'BALEX10',   name:'Balex 10',    sap:'', W:1360, D:840,  H:1920, type:'compactor', wheels:0, datablad:'balex_10_datablad.pdf'},
+  {id:'ORWAK3420', name:'Orwak 3420',  sap:'', W:1775, D:1060, H:2380, type:'machine', wheels:0, glbModelRotY: -Math.PI / 2, defaultRot: Math.PI, datablad:'orwak_3420_datablad.pdf'},
   {id:'BUR',   name:'Bur',        sap:'B-0B-E',  W:1600, D:1200, H:1200, type:'cage',            wheels:4},
   // type:'machine' — GLB with baked textures; materials are NOT replaced in buildContainer
-  {id:'ORWAK5070',   name:'Orwak Multi 5070',  sap:'', W:1740, D:880, H:2160, type:'machine', wheels:0},
+  {id:'ORWAK5070',   name:'Orwak Multi 5070',  sap:'', W:1740, D:880, H:2160, type:'machine', wheels:0, datablad:'orwak_5070_multi_datablad.pdf'},
   // D:1261 = operational depth (door open). GLB has loading door baked open as one mesh — raw Z
   // bbox = 1.261m. Using D:1261 + glb3dD:1.261 gives scale.z=1 (no distortion) and places the
   // 2D center 630mm from wall so the 3D model sits flush without clipping. Closed body = 920mm.
-  {id:'OW5070COMBI', name:'OW5070 Combi',       sap:'', W:2550, D:1261, H:2265, type:'machine', wheels:0, glb3dD:1.261},
-  {id:'ENVIROPAC',   name:'EnviroPac Kjøler',   sap:'', W:965,  D:853, H:1475, type:'machine', wheels:0},
-  {id:'APS800',      name:'APS 800',            sap:'', W:1150, D:1574, H:2360, type:'machine', wheels:0},
+  {id:'OW5070COMBI', name:'OW5070 Combi',       sap:'', W:2550, D:1261, H:2265, type:'machine', wheels:0, glb3dD:1.261, datablad:'orwak_5070_combi_datablad.pdf'},
+  {id:'ENVIROPAC',   name:'EnviroPac Kjøler',   sap:'', W:965,  D:853, H:1475, type:'machine', wheels:0, datablad:'enviropac_kjøler_datablad.pdf'},
+  {id:'APS800',      name:'APS 800',            sap:'', W:1150, D:1574, H:2360, type:'machine', wheels:0, datablad:'aps_800_datablad.pdf'},
   {id:'800LSTATIV',  name:'800L Stativ',         sap:'', W:700,  D:700,  H:1510, type:'machine', wheels:0, glbModelRotY: Math.PI / 2},
   {id:'60LFAT',      name:'60L Fat',             sap:'', W:400,  D:400,  H:628,  type:'machine', wheels:0},
   {id:'200LSEKKE',   name:'200L Sekkestativ',    sap:'', W:400,  D:400,  H:1100, type:'machine', wheels:0},
   {id:'200LFAT',     name:'200L Fat',            sap:'', W:585,  D:585,  H:880,  type:'machine', wheels:0},
   {id:'PALL',        name:'Europall',            sap:'', W:800,  D:1200, H:144,  type:'machine', wheels:0, defaultRot: Math.PI / 2},
-  {id:'ORWAK3250',   name:'Orwak 3250',          sap:'', W:1732, D:1036, H:2970, type:'machine', wheels:0},
+  {id:'ORWAK3250',   name:'Orwak 3250',          sap:'', W:1732, D:1036, H:2970, type:'machine', wheels:0, datablad:'orwak_3250_datablad.pdf'},
 ];
 
 const WALL_EL_DEFS = {

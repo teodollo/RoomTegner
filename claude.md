@@ -71,6 +71,10 @@ Every object in `state.items` has a `kind` field:
 | Arrow keys (2D) | Trigger precise segment-length input while drawing poly |
 | Arrow keys (3D) | Strafe / pan camera |
 | +/- (3D) | Zoom in / out |
+| W / A / S / D (walk) | Move forward / left / back / right in walk mode |
+| Arrow keys (walk) | Same as WASD in walk mode |
+| Mouse move (walk) | Mouse-look — only while Pointer Lock is active |
+| Esc (walk) | Exit walk mode (also released by browser automatically) |
 
 ## State (important fields)
 ```js
@@ -96,6 +100,7 @@ state.readOnly        // true in share-link mode — blocks all edits, applyRead
 state.nextId          // auto-increment counter; assigned to each new item; recalculated on fromJSON
 state.innerWallStart  // {x, y} | null — start point while drawing an inner partition wall
 state.innerWallHover  // {x, y} | null — current cursor target for innerwall preview line
+state.walkMode        // true while Pointer Lock walk mode is active
 ```
 
 ## External Resources
@@ -108,14 +113,14 @@ All Cloudflare R2 assets are served through the local `/r2/<filename>` proxy in 
 
 ## Known Ongoing Issues
 - No touch support for 3D orbit
-- `overlayFraksjonIcons()` is written but currently disabled in `generatePDF()` — coordinate mapping from 3D scene to top-down image pixels is not yet verified (comment in app.js line ~1434)
+- `overlayFraksjonIcons()` is written but currently disabled in `generatePDF()` — coordinate mapping from 3D scene to top-down image pixels is not yet verified (comment in app.js line ~1979)
 
 ---
 
 ## Additional Features
 
 ### Autosave (localStorage)
-Every change schedules a debounced save (`AUTOSAVE_KEY = 'roomtegner_draft'`, 800ms delay) to localStorage. On load, if a draft exists and no `?code=` URL param, a recovery banner appears so the user can restore or discard the previous session. Autosave is disabled in read-only share-link mode.
+Every change schedules a debounced save (`AUTOSAVE_KEY = 'roomtegner_draft'`, 800ms delay) to localStorage. On load, if a draft exists and no `?code=` URL param, a recovery banner appears so the user can restore or discard the previous session. Autosave **recovery** is skipped in read-only share-link mode (`!urlCode` guard), but `scheduleAutosave()` itself has no `readOnly` guard — room renames in read-only mode will still write to localStorage.
 
 ### SELLER_PIN / PIN overlay
 If the `SELLER_PIN` env var is set in `app.py`, the frontend receives it as `window.SELLER_PIN`. On load, `checkPin()` shows a full-screen overlay prompting for the PIN. Auth is stored in `sessionStorage` (not persistent). Share-link visitors (`?code=`) bypass the PIN entirely — `app.py` injects an empty PIN for public routes.
@@ -135,7 +140,9 @@ When a sorting sign is selected in 3D mode, a control panel appears at the botto
 ### Share Code — Export & Read-Only Import
 Sellers can export a sketch as a 6-character share code via the **Share** button (calls `POST /api/sketches/{id}/share`, auth required). This generates or retrieves the code, stored in the `share_code` DB column.
 
-Anyone can view the sketch by entering the code in the **Import Code** dialog (`importByCode()`) or via a direct URL (`?code=XXXXXX`). The public endpoint (`GET /public/{code}`, no auth) returns the sketch data; the frontend loads it with `state.readOnly = true` + `applyReadOnly()`, which hides all edit UI and adds a fixed read-only banner. No edits, saves, or exports are possible for the viewer.
+Anyone can view the sketch by entering the code in the **Import Code** dialog (`importByCode()`) or via a direct URL (`?code=XXXXXX`). The public endpoint (`GET /public/{code}`, no auth) returns `id`, `name`, `customer`, and `data`; the frontend loads it with `state.readOnly = true` + `applyReadOnly()`, which hides all edit UI and adds a fixed read-only banner. Saves and exports are blocked. Panning and zoom still work.
+
+**Room names are still editable in read-only mode** — the room list input (`room-list-name`) is not disabled by `applyReadOnly()`. Changes are guarded by `containsProfanity()` (Norwegian + English word list). This is intentional so customers can label rooms for themselves.
 
 The share code persists indefinitely — there is no expiry or revocation currently.
 
@@ -176,7 +183,7 @@ These patterns are derived from the Decision Log. The full context is there — 
 **Problem:** Containers placed against the wall were clipping through it in 3D.
 **Decision:** Wall mesh is offset outward by half the wall thickness so containers placed at the wall edge sit flush.
 **Why:** Three.js geometry is centered on its position. Without the offset, half the wall would stick into the room and half outside.
-**Pattern:** Wall mesh offset must match the container snap threshold (0.5m). If the threshold changes, update the offset accordingly.
+**Pattern:** Wall mesh offset = `WALL_THICK/2` (6 cm). This ensures the polygon boundary = wall inner face. Both `snapToWall` and `buildSkilt3D` use `nearestWall()` output as the wall inner face — do not add `WALL_THICK/2` on top of it. Container snap threshold is edge-based (`Math.max(hw, hd) + 0.25`) — not a fixed 0.5m.
 
 ---
 
@@ -230,9 +237,10 @@ These patterns are derived from the Decision Log. The full context is there — 
 
 ### Share-code feature — 2026
 **Problem:** Sellers need to share a read-only view of a sketch with customers or colleagues without requiring an API key or account.
-**Decision:** A 6-char uppercase alphanumeric code is generated on demand (POST `/api/sketches/{id}/share`, requires API key) and stored in the `share_code` column. The public read endpoint (`GET /public/{code}`, no auth) returns the sketch data. The frontend enforces read-only mode via `state.readOnly = true` + `applyReadOnly()`, which hides all edit UI and adds a fixed banner. The `onMD()` handler returns early if `state.readOnly`, so no drag/edit is possible even via keyboard or mouse.
+**Decision:** A 6-char uppercase alphanumeric code is generated on demand (POST `/api/sketches/{id}/share`, requires API key) and stored in the `share_code` column. The public read endpoint (`GET /public/{code}`, no auth) returns the sketch data. The frontend enforces read-only mode via `state.readOnly = true` + `applyReadOnly()`, which hides all edit UI and adds a fixed banner. The `onMD()` handler returns early if `state.readOnly`, so no drag/edit is possible. Room names remain editable via the room list (guarded by `containsProfanity()`).
 **Why:** Backend enforcement would require a separate auth system. Frontend-only enforcement is sufficient here since the public endpoint only exposes the data — it cannot write. Customers see a clean view; sellers use the same app with full edit access.
 **Pattern:** The `/public/{code}` endpoint is intentionally outside `/api/` (no auth middleware). Read-only mode must be set via `state.readOnly = true` before calling `applyReadOnly()` — the banner and hidden UI are permanent for the session.
+**3D behaviour in read-only mode:** When `state.readOnly` is true and the user switches to 3D (`setView('3d')`), `scene3d.enterWalkMode()` is called automatically — the viewer enters walk mode without any button click. Orbit drag and scroll-zoom return early when `state.readOnly` (disabled entirely). The compass widget and walk-wrap buttons are hidden. Exiting walk mode in read-only context calls `setView('2d')` — it falls back to the 2D canvas, not to isometric 3D, since orbit would be unusable.
 
 ---
 
@@ -274,6 +282,18 @@ These patterns are derived from the Decision Log. The full context is there — 
 
 ---
 
+### Walk mode — first-person Pointer Lock — 2026-04
+**Problem:** Isometric 3D gives a bird's-eye overview but is hard to use for evaluating sight-lines, clearance, and label visibility at human eye level.
+**Decision:** `initWalk()` (called once from `init()`) sets up Pointer Lock on the renderer canvas. On lock acquired: `walk.active = true`, `state.walkMode = true`, `rebuild()` is called to add ceiling geometry + ceiling lights (suppressed in normal isometric view). Mouse-look uses `movementX/Y`. WASD + arrow keys drive a per-frame movement loop inside the existing `rAF` tick. Crosshair (`#r3d-walk-crosshair`) and HUD (`#walk-hud`) are shown/hidden on lock change.
+**Why:** Pointer Lock is the browser-native API for captured mouse input — no polling or manual delta tracking. Ceiling and lights are added only in walk mode to avoid visual clutter in the isometric view.
+**Pattern:**
+- `state.walkMode` is the authoritative flag — all keyboard handlers in `app.js` and `render3d.js` guard on it with early returns.
+- Never call `enterWalkMode()` without the 3D view being active.
+- Exit walk via `_exitWalkMode()` (internal) or `document.exitPointerLock()` — both paths go through the `pointerlockchange` listener so exit is always clean.
+- Ceiling and ceiling lights are only built when `state.walkMode` is true during `_doRebuild` — do not add them to the isometric branch.
+
+---
+
 ### 3D drag via Raycaster + floor plane — 2026-04
 **Problem:** Users could only move containers/cages/machines by dragging in the 2D canvas. Dragging in the 3D view had no effect.
 **Decision:** `initDrag3D()` in `render3d.js` registers mousedown/mousemove on the renderer canvas. On mousedown, a `THREE.Raycaster` hits `_itemMeshMap` (all draggable items); a ray–floor-plane intersection records the click offset so the object doesn't jump. On mousemove, only the floor-plane intersection runs (O(1) math) — `mesh.position.x/z` is updated directly. No rebuild during drag; the `rAF` loop renders immediately. `rebuild()` fires on mouseup via the document-level handler in `app.js` (same path as 2D drag).
@@ -297,9 +317,21 @@ These patterns are derived from the Decision Log. The full context is there — 
 
 ### Hover tooltip — glassmorfisme infoboble — 2026-04
 **Problem:** 3D-visningen var helstatisk — brukere fikk ingen informasjon om utstyr uten å klikke og lese høyrepanelet.
-**Decision:** Raycaster throttles 1×/4 frames mot `_itemMeshMap`. Hover viser en glassmorfisme-boble over objektets topp (projisert via `vector.project(camera)` → CSS left/top på absolutt-posisjonert div i `#cw`). Hide-delay 300ms forhindrer flimring når musen beveger seg mot der boblen vises. Walk mode bruker NDC (0,0) = skjermsentrum som raycast-origine; boble forankres over krysshåret.
-**Why:** CSS2DRenderer ble ikke brukt — ikke tilgjengelig i bundlet three.min.js r128. Ren HTML/CSS gir full kontroll over glassmorfisme-stilen og skarpt tekst uten ekstra Three.js render-pass.
-**Pattern:** `_tooltipDiv` injiseres i `init()` og er barn av `container` (#cw). Tooltip-kode bruker kun eksisterende `_drag3dRaycaster`, `_itemMeshMap`, og `camera` — ingen nye Three.js-objekter allokeres per frame. `state._pdfExporting` + `_tooltipDiv.style.display = 'none'` i `captureTopDown()` sikrer at boblen aldri vises i PDF-eksport.
+**Decision:** Walk mode: `_updateWalkCrosshair()` throttler raycasting 1×/4 frames mot `_itemMeshMap` via NDC (0,0). Venstre klikk viser glassmorfisme-boble (`_tooltipDiv`); andre klikk på samme objekt åpner datablad hvis `def.datablad` finnes. Orbit mode: et eget hover-hint (`#r3d-datablad-hint`) vises nær cursor via en egen `mousemove`-lytter i `initDrag3D()`, også throttlet 1×/4 frames — kun for items med `def.datablad`.
+**Why:** CSS2DRenderer ble ikke brukt — ikke tilgjengelig i bundlet three.min.js r128. Walk og orbit bruker ulike hint-elementer fordi anchor-punktet er forskjellig (walk = skjermsentrum, orbit = musposisjon).
+**Pattern:** `_tooltipDiv` er barn av `#cw`, injisert i `init()`. `#r3d-datablad-hint` er barn av `container`, injisert lazy ved første treff i orbit-hover. Begge bruker eksisterende `_drag3dRaycaster` — ingen nye Three.js-objekter allokeres per frame. `captureTopDown()` skjuler `_tooltipDiv` eksplisitt under PDF-eksport.
+
+---
+
+### Datablad-system — høyreklikk kontekstmeny + PDF-overlay — 2026-04
+**Problem:** Selgere trenger rask tilgang til produktdatablad direkte fra planleggingsverktøyet uten å forlate appen.
+**Decision:** `def.datablad` (valgfritt felt i `DEFS`) inneholder filnavnet til et PDF-datablad på Cloudflare R2. Høyreklikk på et item med dette feltet viser en kontekstmeny (`#ctx-menu`) med "Åpne datablad". Valg åpner en spillkart-lignende overlay (`#datablad-overlay`) med en `<iframe>` som laster `/r2/<filename>`. I walk mode åpnes datablad ved andre klikk på samme objekt (siden høyreklikk ikke er tilgjengelig under Pointer Lock). I 2D-modus endres cursor til `context-menu` ved hover over items med datablad.
+**Why:** `<iframe>` lar nettleseren håndtere PDF-rendering og scrolling uten ekstra biblioteker. Spillkart-estetikken (dobbel ramme, mørk bakgrunn) gir et tydelig visuelt brudd fra planleggingsflaten. `/r2/`-proxy-regelen overholdes — PDF-URL hardkodes aldri.
+**Pattern:**
+- Legg til `datablad: 'filnavn.pdf'` i DEFS-oppføringen for å aktivere funksjonen for et item. Ingen andre endringer trengs.
+- `openDatablad(filename, itemName)` og `_closeDatablad()` er globale funksjoner i `app.js` — kalles fra `render3d.js` via `window.openDatablad()` for walk mode.
+- Kontekstmenyen blokkeres under `state.walkMode` (walk eier musehendelser) og ignoreres stiltiende i `state.readOnly` (datablad-visning er trygt read-only).
+- `scene3d.getItemAtEvent(e)` eksponert på `scene3d`-objektet for raycasting fra `app.js` kontekstmeny-handler.
 
 ---
 
